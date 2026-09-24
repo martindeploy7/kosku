@@ -1,0 +1,140 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 33% 97%;
+    --surface: 0 0% 100%;
+    --foreground: 224 32% 12%;
+    --muted: 220 20% 95%;
+    --muted-foreground: 222 12% 46%;
+    --border: 220 18% 90%;
+    --input: 220 18% 88%;
+    --ring: 243 75% 59%;
+
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
+    --primary-soft: 243 90% 96%;
+
+    --accent: 38 95% 52%;
+    --accent-foreground: 30 60% 12%;
+
+    --success: 158 68% 34%;
+    --success-soft: 154 66% 94%;
+    --warning: 33 92% 46%;
+    --warning-soft: 42 96% 93%;
+    --danger: 356 72% 50%;
+    --danger-soft: 356 90% 96%;
+    --info: 208 86% 47%;
+    --info-soft: 205 92% 94%;
+
+    --radius: 14px;
+  }
+
+  .dark {
+    --background: 225 30% 8%;
+    --surface: 225 26% 11%;
+    --foreground: 220 30% 96%;
+    --muted: 225 20% 16%;
+    --muted-foreground: 220 14% 64%;
+    --border: 225 18% 20%;
+    --input: 225 18% 24%;
+    --ring: 243 80% 70%;
+
+    --primary: 243 82% 68%;
+    --primary-foreground: 225 40% 10%;
+    --primary-soft: 243 40% 20%;
+
+    --accent: 38 92% 58%;
+    --accent-foreground: 30 60% 10%;
+
+    --success: 158 60% 48%;
+    --success-soft: 158 40% 18%;
+    --warning: 38 90% 58%;
+    --warning-soft: 36 45% 18%;
+    --danger: 356 78% 62%;
+    --danger-soft: 356 40% 20%;
+    --info: 208 82% 62%;
+    --info-soft: 208 42% 20%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply bg-border rounded-full border-[3px] border-solid border-transparent bg-clip-content;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-muted-foreground/40 bg-clip-content;
+  }
+
+  input[type='number']::-webkit-inner-spin-button,
+  input[type='number']::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+  }
+}
+
+@layer components {
+  .card {
+    /* min-w-0 matters: a card is usually a grid/flex item, and without it the
+       track grows to fit wide content (tables, charts), so the inner
+       overflow-x-auto never engages and the whole page scrolls sideways. */
+    @apply bg-surface border border-border rounded-lg shadow-xs min-w-0;
+  }
+
+  .focus-ring {
+    @apply outline-none focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background;
+  }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-muted rounded-md;
+  }
+  .skeleton::after {
+    content: '';
+    @apply absolute inset-0 -translate-x-full;
+    background: linear-gradient(90deg, transparent, hsl(var(--surface) / 0.6), transparent);
+    animation: shimmer 1.6s infinite;
+  }
+}
+
+/* Leaflet tweaks */
+.leaflet-container {
+  @apply rounded-md z-0;
+  font-family: inherit;
+}
+.leaflet-control-attribution {
+  @apply text-[10px] bg-surface/80 text-muted-foreground;
+}
+
+/* Recharts tweaks */
+.recharts-cartesian-axis-tick text {
+  @apply fill-muted-foreground text-[11px];
+}
+.recharts-default-legend {
+  @apply text-xs;
+}
+
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}

@@ -1,0 +1,11 @@
+node_modules
+dist
+dist-server
+.devdb
+.devdata
+.env
+.env.*
+!.env.example
+.playwright-mcp
+*.log
+.git

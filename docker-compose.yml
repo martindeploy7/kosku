@@ -1,0 +1,94 @@
+# Kosku — production stack for one small VPS.
+#
+#   cp .env.example .env        # fill in the values
+#   docker compose --profile tunnel up -d --build     # behind Cloudflare Tunnel (recommended)
+#   docker compose --profile caddy  up -d --build     # or: direct HTTPS with Caddy
+#   docker compose logs app | grep -A4 SUPERADMIN      # first-run temporary password
+#
+# The app port is bound to localhost only; the public entry is the tunnel or Caddy.
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kosku
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: kosku
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
+      TZ: ${APP_TIMEZONE:-Asia/Jakarta}
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c max_connections=50
+      -c log_min_duration_statement=1000
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kosku -d kosku"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .
+    image: kosku-app
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://kosku:${POSTGRES_PASSWORD}@db:5432/kosku
+      DATA_DIR: /data
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/data
+    ports:
+      - "127.0.0.1:8787:8787"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "5" }
+
+  # Off-site, encrypted backups: hourly database dumps + document files to R2/S3.
+  backup:
+    build: ./deploy/backup
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://kosku:${POSTGRES_PASSWORD}@db:5432/kosku
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - appdata:/data:ro
+    profiles: ["tunnel", "caddy", "backup"]
+
+  # Option A (recommended): no inbound ports at all.
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?set CLOUDFLARE_TUNNEL_TOKEN in .env}
+    depends_on: [app]
+    profiles: ["tunnel"]
+
+  # Option B: public HTTPS straight from the VPS (Let's Encrypt, automatic).
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+    profiles: ["caddy"]
+
+volumes:
+  pgdata:
+  appdata:
+  caddy_data:
+  caddy_config:

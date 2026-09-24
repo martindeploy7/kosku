@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+.vite
+*.local
+.DS_Store
+.env
+.env.*
+!.env.example
+.netlify
+*.log
+.playwright-mcp
+.devdb
+.devdata
+dist-server
+.env

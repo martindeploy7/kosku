@@ -7,10 +7,16 @@ import { REPORT_CATALOGUE } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 
 
-const GROUP_META: Record<string, { icon: React.ComponentType<{ className?: string }>; tone: string; desc: string }> = {
-  Keuangan: { icon: BarChart3, tone: 'bg-primary-soft text-primary', desc: 'Laporan akuntansi standar untuk melihat kesehatan keuangan bisnis.' },
-  Pembayaran: { icon: CreditCard, tone: 'bg-success-soft text-success', desc: 'Pelacakan pendapatan, tagihan, deposit, dan keterlambatan pembayaran.' },
-  Penyewa: { icon: Users, tone: 'bg-info-soft text-info', desc: 'Data penghuni, okupansi kamar, durasi sewa, dan kendaraan.' },
+const GROUP_META: Record<string, { icon: React.ComponentType<{ className?: string }>; tone: 'primary' | 'success' | 'info'; desc: string }> = {
+  Keuangan: { icon: BarChart3, tone: 'primary', desc: 'Laporan akuntansi standar untuk melihat kesehatan keuangan bisnis.' },
+  Pembayaran: { icon: CreditCard, tone: 'success', desc: 'Pelacakan pendapatan, tagihan, deposit, dan keterlambatan pembayaran.' },
+  Penyewa: { icon: Users, tone: 'info', desc: 'Data penghuni, okupansi kamar, durasi sewa, dan kendaraan.' },
+}
+
+const GROUP_TONES = {
+  primary: { surface: 'bg-gradient-to-br from-surface via-surface to-primary-soft/80', mark: 'text-primary' },
+  success: { surface: 'bg-gradient-to-br from-surface via-surface to-success-soft/80', mark: 'text-success' },
+  info: { surface: 'bg-gradient-to-br from-surface via-surface to-info-soft/80', mark: 'text-info' },
 }
 
 export default function Reports() {
@@ -33,17 +39,16 @@ export default function Reports() {
         {REPORT_CATALOGUE.map((group) => {
           const meta = GROUP_META[group.group]
           const Icon = meta.icon
+          const tone = GROUP_TONES[meta.tone]
           const expanded = open.includes(group.group)
           return (
-            <Card key={group.group} className="overflow-hidden">
+            <Card key={group.group} className={cn('relative isolate overflow-hidden', !expanded && tone.surface)}>
               <button
                 onClick={() => toggle(group.group)}
-                className="w-full flex items-center gap-4 p-5 text-left focus-ring"
+                className={cn('relative z-10 w-full min-h-[112px] flex items-center gap-4 p-5 text-left focus-ring', expanded && tone.surface)}
               >
-                <span className={cn('h-11 w-11 rounded-xl grid place-items-center shrink-0', meta.tone)}>
-                  <Icon className="h-5 w-5" />
-                </span>
-                <span className="min-w-0 flex-1">
+                <Icon aria-hidden="true" className={cn('absolute -bottom-7 -right-3 z-0 h-32 w-32 opacity-[0.12]', tone.mark)} />
+                <span className="relative z-10 min-w-0 flex-1 max-w-[80%]">
                   <span className="flex items-center gap-2">
                     <span className="font-bold text-[15px]">{group.group}</span>
                     <Badge tone="muted">{group.items.length} laporan</Badge>

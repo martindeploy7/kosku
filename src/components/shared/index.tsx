@@ -95,7 +95,7 @@ export function PageHeader({
 /* ------------------------------------------------------------------ StatCard */
 
 export function StatCard({
-  label, value, sublabel, icon: Icon, tone = 'primary', trend, onClick, className, appearance = 'default',
+  label, value, sublabel, icon: Icon, tone = 'primary', trend, onClick, className, appearance = 'watermark',
 }: {
   label: string
   value: React.ReactNode

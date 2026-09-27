@@ -13,7 +13,7 @@ import { PaymentModal } from '@/components/modals/PaymentModal'
 import { isCurrentRental, outstanding, paidAmount } from '@/lib/finance'
 import { useDerived, useLookups } from '@/lib/selectors'
 import { useStore } from '@/lib/store'
-import { addDays, formatDate, formatIDR, sum } from '@/lib/utils'
+import { addDays, cn, formatDate, formatIDR, sum } from '@/lib/utils'
 
 
 export default function Frontdesk() {
@@ -100,24 +100,28 @@ export default function Frontdesk() {
           icon={Banknote}
           title="Selesaikan pembayaran"
           desc="Pembayaran transfer manual / cash"
+          tone="success"
           onClick={() => setPayOpen(true)}
         />
         <QuickAction
           icon={LogOut}
           title="Akhiri perjanjian penyewa"
           desc="Proses keluar / check-out penyewa"
+          tone="warning"
           onClick={() => setCheckoutOpen(true)}
         />
         <QuickAction
           icon={CalendarClock}
           title="Cek ketersediaan kamar"
           desc="Jadwal sewa & ketersediaan"
+          tone="info"
           onClick={() => navigate('/rooms?tab=schedule')}
         />
         <QuickAction
           icon={Wallet}
           title="Catat pengeluaran"
           desc="Pengeluaran properti & kamar"
+          tone="danger"
           onClick={() => setExpenseOpen(true)}
         />
       </div>
@@ -275,22 +279,28 @@ export default function Frontdesk() {
 }
 
 function QuickAction({
-  icon: Icon, title, desc, onClick,
+  icon: Icon, title, desc, tone, onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>
   title: string
   desc: string
+  tone: 'success' | 'warning' | 'info' | 'danger'
   onClick: () => void
 }) {
+  const styles = {
+    success: { surface: 'bg-gradient-to-br from-surface via-surface to-success-soft/80', mark: 'text-success' },
+    warning: { surface: 'bg-gradient-to-br from-surface via-surface to-warning-soft/80', mark: 'text-warning' },
+    info: { surface: 'bg-gradient-to-br from-surface via-surface to-info-soft/80', mark: 'text-info' },
+    danger: { surface: 'bg-gradient-to-br from-surface via-surface to-danger-soft/80', mark: 'text-danger' },
+  }[tone]
+
   return (
     <button
       onClick={onClick}
-      className="card p-4 text-left flex items-start gap-3 hover:shadow-md hover:-translate-y-0.5 transition-all focus-ring group"
+      className={cn('card relative isolate min-h-[112px] overflow-hidden p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-md focus-ring group', styles.surface)}
     >
-      <span className="h-10 w-10 rounded-xl bg-primary-soft text-primary grid place-items-center shrink-0 group-hover:scale-105 transition">
-        <Icon className="h-5 w-5" />
-      </span>
-      <span className="min-w-0">
+      <Icon aria-hidden="true" className={cn('absolute -bottom-5 -right-3 z-0 h-28 w-28 opacity-[0.12] transition-transform duration-300 group-hover:scale-105', styles.mark)} />
+      <span className="relative z-10 block max-w-[78%] min-w-0">
         <span className="block font-bold text-sm leading-tight">{title}</span>
         <span className="block text-[11px] text-muted-foreground mt-1 leading-relaxed">{desc}</span>
       </span>

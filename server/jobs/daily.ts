@@ -1,12 +1,14 @@
-import { and, inArray, isNull } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import { daysBetween, formatDate, formatIDR } from '@shared/dates'
 import { buildTakeaways, outstanding } from '@shared/finance'
+import { recurringExpenseDates } from '@shared/recurrence'
 import { purgeExpiredSessions } from '../auth/session'
 import { db, schema } from '../db/client'
 import { env } from '../env'
 import { Effects } from '../lib/effects'
 import { bumpRev } from '../lib/rev'
 import { appToday, runDailyBilling } from '../services/billing'
+import { writeAudit } from '../services/audit'
 import { toContract, toInvoice, toRental, toRoom } from '../services/mappers'
 import { invoiceVars, queueWa, render } from '../services/messages'
 import { notify } from '../services/notify'
@@ -21,6 +23,74 @@ export async function jobDailyBilling(asOf = appToday()) {
   await purgeExpiredSessions()
   bumpRev()
   return result
+}
+
+/* ------------------------------------------------------------------ recurring expenses */
+
+/** Materialize every recurring expense due through `asOf`; safe to replay. */
+export async function jobRecurringExpenses(asOf = appToday()) {
+  const templates = await db.select().from(schema.expenses).where(and(
+    isNull(schema.expenses.deletedAt),
+    eq(schema.expenses.recurring, true),
+  ))
+  if (!templates.length) return { created: 0 }
+
+  const templateIds = templates.map((e) => e.id)
+  const existing = await db.select({ parentId: schema.expenses.recurrenceParentId, date: schema.expenses.date })
+    .from(schema.expenses)
+    .where(inArray(schema.expenses.recurrenceParentId, templateIds))
+  const known = new Set(existing.map((e) => `${e.parentId}:${e.date}`))
+  const createdByProperty = new Map<string, number>()
+  let created = 0
+
+  await db.transaction(async (tx) => {
+    for (const template of templates) {
+      const recurrence = template.recurrence ?? 'monthly'
+      const dates = recurringExpenseDates(template.date, recurrence, asOf, template.recurrenceEndDate)
+      for (const date of dates) {
+        const key = `${template.id}:${date}`
+        if (known.has(key)) continue
+        const [row] = await tx.insert(schema.expenses).values({
+          propertyId: template.propertyId,
+          roomId: template.roomId,
+          category: template.category,
+          name: template.name,
+          date,
+          items: template.items,
+          total: template.total,
+          note: template.note,
+          attachmentFileId: null,
+          recurring: false,
+          recurrence: null,
+          recurrenceEndDate: null,
+          recurrenceParentId: template.id,
+          createdBy: null,
+        }).onConflictDoNothing({
+          target: [schema.expenses.recurrenceParentId, schema.expenses.date],
+        }).returning()
+        if (!row) continue
+        known.add(key)
+        created++
+        createdByProperty.set(row.propertyId, (createdByProperty.get(row.propertyId) ?? 0) + 1)
+        await writeAudit(null, null, {
+          action: 'expense.recurring_create', entityType: 'expense', entityId: row.id, propertyId: row.propertyId,
+          summary: `Buat otomatis pengeluaran rutin ${row.name} (${formatIDR(row.total)})`,
+          meta: { templateId: template.id, recurrence, date },
+        }, tx)
+      }
+    }
+  })
+
+  for (const [propertyId, count] of createdByProperty) {
+    await notify(db, {
+      type: 'recurring_expenses', severity: 'info', propertyId,
+      title: `${count} pengeluaran rutin dibuat otomatis`,
+      body: `Transaksi terjadwal sampai ${formatDate(asOf, 'long')} sudah dicatat.`,
+      link: '/expenses', dedupeKey: `recurring-expenses:${propertyId}:${asOf}`,
+    })
+  }
+  if (created) bumpRev()
+  return { created }
 }
 
 /* ------------------------------------------------------------------ admin awareness */
@@ -194,4 +264,3 @@ export async function jobTenantReminders(asOf = appToday(), opts: { force?: bool
   await fx.run()
   return { queued }
 }
-

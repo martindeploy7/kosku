@@ -260,6 +260,8 @@ export interface ExpenseItem {
   amount: number
 }
 
+export type ExpenseRecurrence = 'weekly' | 'monthly' | 'yearly'
+
 export interface Expense {
   id: ID
   propertyId: ID
@@ -272,6 +274,10 @@ export interface Expense {
   note: string
   attachment: string | null
   recurring: boolean
+  recurrence: ExpenseRecurrence | null
+  recurrenceEndDate: string | null
+  /** Set on transactions created automatically from a recurring template. */
+  recurrenceParentId: ID | null
   createdAt: string
   version: number
 }

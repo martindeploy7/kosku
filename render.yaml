@@ -47,6 +47,6 @@ services:
       - key: WA_MAX_DELAY_MS
         value: "9000"
       - key: JOBS_ENABLED
-        value: "false"
+        value: "true"
       - key: HEALTHCHECK_URL
         sync: false

@@ -12,7 +12,7 @@ import { hashPassword } from './auth/password'
 import { resetPasswordFor } from './bootstrapAdmin'
 import { db, schema, sql } from './db/client'
 import { runMigrations } from './db/migrate'
-import { jobDailyBilling, jobDailyDigest, jobTenantReminders } from './jobs/daily'
+import { jobDailyBilling, jobDailyDigest, jobRecurringExpenses, jobTenantReminders } from './jobs/daily'
 import { temporaryPassword } from './lib/crypto'
 import { seedDemo } from './seed'
 
@@ -77,6 +77,7 @@ async function main() {
     }
 
     case 'run-daily':
+      console.log('expenses', await jobRecurringExpenses())
       console.log('billing', await jobDailyBilling())
       console.log('digest', await jobDailyDigest())
       console.log('reminders', await jobTenantReminders(undefined, { force: true }))

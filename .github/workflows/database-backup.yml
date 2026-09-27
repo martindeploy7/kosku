@@ -1,0 +1,52 @@
+name: Backup Neon to R2
+
+on:
+  schedule:
+    # 01:30 Asia/Jakarta, before the daily application jobs.
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Install age encryption
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes age
+
+      - name: Dump, validate, encrypt, and upload
+        env:
+          DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+          BACKUP_AGE_RECIPIENT: ${{ secrets.BACKUP_AGE_RECIPIENT }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in DATABASE_URL BACKUP_AGE_RECIPIENT AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY R2_ENDPOINT R2_BUCKET; do
+            test -n "${!name:-}" || { echo "Missing GitHub secret: $name" >&2; exit 1; }
+          done
+
+          backup_dir="$(mktemp -d)"
+          trap 'rm -rf "$backup_dir"' EXIT
+          stamp="$(date -u +'%Y-%m-%dT%H-%M-%SZ')"
+          plain="$backup_dir/kosku-$stamp.dump"
+          encrypted="$plain.age"
+
+          docker run --rm -e DATABASE_URL postgres:17-alpine \
+            sh -c 'pg_dump "$DATABASE_URL" --format=custom --no-owner --no-privileges' > "$plain"
+          docker run --rm -v "$backup_dir:/backup:ro" postgres:17-alpine \
+            pg_restore --list "/backup/$(basename "$plain")" > /dev/null
+          age --recipient "$BACKUP_AGE_RECIPIENT" --output "$encrypted" "$plain"
+
+          aws s3 cp "$encrypted" "s3://$R2_BUCKET/database/daily/$(basename "$encrypted")" \
+            --endpoint-url "$R2_ENDPOINT" --only-show-errors
+          echo "Encrypted backup uploaded: database/daily/$(basename "$encrypted")"

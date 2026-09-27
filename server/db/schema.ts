@@ -2,8 +2,9 @@ import { sql } from 'drizzle-orm'
 import {
   bigint, boolean, date, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid,
 } from 'drizzle-orm/pg-core'
+import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import type {
-  ActiveSchemes, Address, AgreementSettings, BookingPolicy, Contact, ExpenseItem, HouseRules,
+  ActiveSchemes, Address, AgreementSettings, BookingPolicy, Contact, ExpenseItem, ExpenseRecurrence, HouseRules,
   InvoiceItem, InvoicePdfSettings, LateFee, MessageTemplate, PriceSet,
 } from '@shared/types'
 import type { AgreementSnapshot } from '@shared/agreement'
@@ -275,11 +276,17 @@ export const expenses = pgTable(
     note: text('note').notNull().default(''),
     attachmentFileId: uuid('attachment_file_id'),
     recurring: boolean('recurring').notNull().default(false),
+    recurrence: text('recurrence', { enum: ['weekly', 'monthly', 'yearly'] }).$type<ExpenseRecurrence>(),
+    recurrenceEndDate: date('recurrence_end_date', { mode: 'string' }),
+    recurrenceParentId: uuid('recurrence_parent_id').references((): AnyPgColumn => expenses.id),
     createdBy: uuid('created_by'),
     ...audit,
     ...softDelete,
   },
-  (t) => [index('expenses_property_date_idx').on(t.propertyId, t.date)],
+  (t) => [
+    index('expenses_property_date_idx').on(t.propertyId, t.date),
+    uniqueIndex('expenses_recurrence_instance_uq').on(t.recurrenceParentId, t.date),
+  ],
 )
 
 /* ------------------------------------------------------------------ files & contracts */

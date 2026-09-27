@@ -10,7 +10,7 @@ import { isCurrentRental, planFirstInvoice, servicePriceFor } from '@/lib/financ
 import { useLookups } from '@/lib/selectors'
 import { useNeedsApproval, usePendingFor, useStore } from '@/lib/store'
 import { NeedsApprovalHint, PendingApprovalBanner } from '@/components/shared/ApprovalNotice'
-import type { ExpenseItem, PaymentMethod, PriceSet, RentType, Room, RoomCondition, Tenant } from '@/lib/types'
+import type { ExpenseItem, ExpenseRecurrence, PaymentMethod, PriceSet, RentType, Room, RoomCondition, Tenant } from '@/lib/types'
 import { addDays, cn, formatDate, formatIDR, sum, uid } from '@/lib/utils'
 
 /* ================================================================== rental fields (shared) */
@@ -565,6 +565,8 @@ export function ExpenseFormModal({
   const [items, setItems] = React.useState<ExpenseItem[]>([{ name: '', amount: 0 }])
   const [note, setNote] = React.useState('')
   const [recurring, setRecurring] = React.useState(false)
+  const [recurrence, setRecurrence] = React.useState<ExpenseRecurrence>('monthly')
+  const [recurrenceEndDate, setRecurrenceEndDate] = React.useState('')
   const [receipt, setReceipt] = React.useState<File | null>(null)
   const [saving, setSaving] = React.useState(false)
 
@@ -572,7 +574,8 @@ export function ExpenseFormModal({
     if (!open) return
     setPropertyId(presetPropertyId ?? (properties.length === 1 ? properties[0].id : ''))
     setRoomId(''); setCategory(''); setName(''); setDate(today)
-    setItems([{ name: '', amount: 0 }]); setNote(''); setRecurring(false); setReceipt(null)
+    setItems([{ name: '', amount: 0 }]); setNote(''); setRecurring(false)
+    setRecurrence('monthly'); setRecurrenceEndDate(''); setReceipt(null)
   }, [open, presetPropertyId, today, properties])
 
   const subtotal = sum(items, (i) => i.amount)
@@ -588,6 +591,8 @@ export function ExpenseFormModal({
       propertyId, roomId: roomId || null, category, name: name.trim(), date,
       items: items.filter((i) => i.amount > 0).map((i) => ({ name: i.name || name.trim(), amount: i.amount })),
       note, attachment: null, recurring,
+      recurrence: recurring ? recurrence : null,
+      recurrenceEndDate: recurring && recurrenceEndDate ? recurrenceEndDate : null,
     }), { refresh: !receipt, success: `Pengeluaran ${formatIDR(subtotal)} dicatat` })
     if (expense && receipt) await run(() => actions.uploadFile(receipt, 'expense', expense.id, 'nota'))
     setSaving(false)
@@ -668,8 +673,27 @@ export function ExpenseFormModal({
               </Field>
             </div>
 
-            <Checkbox checked={recurring} onChange={setRecurring} label="Biaya rutin"
-              description="Tandai untuk pengeluaran berulang seperti internet, upah kebersihan, atau listrik." />
+            <div className="rounded-lg border border-border bg-muted/30 p-4 space-y-4">
+              <Checkbox checked={recurring} onChange={setRecurring} label="Biaya rutin"
+                description="Buat transaksi berikutnya otomatis untuk internet, upah kebersihan, listrik, dan biaya tetap lain." />
+              {recurring && (
+                <div className="grid sm:grid-cols-2 gap-4 pl-6">
+                  <Field label="Ulangi setiap">
+                    <Select value={recurrence} onChange={(v) => setRecurrence(v as ExpenseRecurrence)} options={[
+                      { value: 'weekly', label: 'Minggu' },
+                      { value: 'monthly', label: 'Bulan' },
+                      { value: 'yearly', label: 'Tahun' },
+                    ]} />
+                  </Field>
+                  <Field label="Berakhir (opsional)">
+                    <DateInput value={recurrenceEndDate} onChange={setRecurrenceEndDate} min={date} />
+                  </Field>
+                  <p className="sm:col-span-2 text-xs leading-relaxed text-muted-foreground">
+                    Tanggal ini menjadi transaksi pertama. Transaksi lanjutan dibuat otomatis saat jatuh tempo dan tidak menyalin lampiran.
+                  </p>
+                </div>
+              )}
+            </div>
           </>
         )}
       </div>

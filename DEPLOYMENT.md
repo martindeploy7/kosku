@@ -96,9 +96,37 @@ S3_SECRET_ACCESS_KEY=<secret-key>
 5. Deploy dan cek `https://<service>.onrender.com/api/health`.
 6. Baca log first boot untuk password sementara `admin`, login, lalu segera ganti password.
 
-Blueprint Free sengaja memakai `WA_DRIVER=mock` dan `JOBS_ENABLED=false`. Aktifkan
-`WA_DRIVER=baileys` dan `JOBS_ENABLED=true` hanya setelah backend dipindahkan ke
-service always-on dengan storage/session strategy yang sesuai.
+Blueprint Free memakai `WA_DRIVER=mock` dan `JOBS_ENABLED=true`. GitHub Actions
+`daily-wake.yml` membangunkan service pukul 07:00 WIB; startup catch-up yang idempoten
+kemudian membuat invoice dan pengeluaran rutin, memperbarui status, serta menulis
+ringkasan harian. Ini cukup untuk pemakaian pribadi, tetapi bukan jaminan always-on.
+
+### 4. Backup Neon terenkripsi ke R2
+
+Workflow `database-backup.yml` berjalan setiap hari pukul 01:30 WIB. Ia memakai
+PostgreSQL 17 untuk membuat dump, memvalidasi dump, mengenkripsinya dengan `age`, lalu
+mengunggah hasil saja ke prefix privat `database/daily/` di R2. GitHub repository perlu
+secrets berikut:
+
+```text
+NEON_DATABASE_URL
+BACKUP_AGE_RECIPIENT
+R2_ENDPOINT
+R2_BUCKET
+R2_ACCESS_KEY_ID
+R2_SECRET_ACCESS_KEY
+```
+
+Simpan private key `age` di password manager dan di luar repository. Tanpa private key
+tersebut backup tidak dapat dipulihkan. Bucket memiliki lifecycle 35 hari untuk prefix
+backup harian agar penggunaan storage tetap kecil.
+
+Contoh pemulihan ke database kosong:
+
+```bash
+age --decrypt -i /path/to/kosku-backup.agekey kosku-TIMESTAMP.dump.age > kosku.dump
+pg_restore --clean --if-exists --no-owner --no-privileges --dbname "$TARGET_DATABASE_URL" kosku.dump
+```
 
 Migrasi database berjalan otomatis ketika server boot. Jangan menjalankan `seed-demo`
 terhadap database production.
@@ -108,9 +136,11 @@ terhadap database production.
 - Uji login, ganti password, buat properti, upload dokumen, buat sewa, invoice, dan
   tanda tangan kontrak dari perangkat lain.
 - Hubungkan WhatsApp hanya setelah URL HTTPS final stabil.
-- Setiap deploy/restart Free Render dapat memutus sesi WhatsApp dan menunda job harian.
-- Simpan export/backup database secara terpisah. Backup container Docker di repository
-  tidak berjalan otomatis di Render Free.
+- Setiap deploy/restart Free Render dapat menunda job; seluruh job dibuat idempoten dan
+  startup catch-up mengerjakan yang tertinggal.
+- Periksa workflow backup secara berkala dan lakukan uji restore ke database kosong.
+- Mode WhatsApp asli tetap membutuhkan service always-on dan strategi sesi persisten;
+  jangan aktifkan `WA_DRIVER=baileys` di Render Free.
 
 ## Saat siap production sungguhan
 

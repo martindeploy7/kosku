@@ -142,6 +142,9 @@ export const toExpense = (e: Row<typeof schema.expenses>): Expense => ({
   note: e.note,
   attachment: e.attachmentFileId,
   recurring: e.recurring,
+  recurrence: e.recurrence,
+  recurrenceEndDate: e.recurrenceEndDate,
+  recurrenceParentId: e.recurrenceParentId,
   createdAt: iso(e.createdAt)!,
   version: e.version,
 })

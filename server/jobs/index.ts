@@ -4,7 +4,7 @@ import { db, schema } from '../db/client'
 import { env } from '../env'
 import { errMeta, log } from '../lib/log'
 import { notify } from '../services/notify'
-import { jobDailyBilling, jobDailyDigest, jobTenantReminders } from './daily'
+import { jobDailyBilling, jobDailyDigest, jobRecurringExpenses, jobTenantReminders } from './daily'
 
 /* Scheduled work runs on pg-boss (Postgres-backed queue): schedules survive
  * restarts, and `missed: 'once'` replays a run that fell inside downtime.
@@ -42,13 +42,15 @@ async function pingHealthcheck(suffix = '') {
 }
 
 export async function runDailyNow() {
+  const expenses = await recordRun('recurring-expenses', () => jobRecurringExpenses() as Promise<Record<string, unknown>>)
   const billing = await recordRun('daily-billing', () => jobDailyBilling() as unknown as Promise<Record<string, unknown>>)
   const digest = await recordRun('daily-digest', () => jobDailyDigest())
   const reminders = await recordRun('tenant-reminders', () => jobTenantReminders(undefined, { force: true }) as Promise<Record<string, unknown>>)
-  return { billing, digest, reminders }
+  return { expenses, billing, digest, reminders }
 }
 
 const JOBS = {
+  'recurring-expenses': { cron: '10 0 * * *', run: () => jobRecurringExpenses() as Promise<Record<string, unknown>>, ping: false },
   'daily-billing': { cron: '5 0 * * *', run: () => jobDailyBilling() as unknown as Promise<Record<string, unknown>>, ping: true },
   'daily-digest': { cron: '0 7 * * *', run: () => jobDailyDigest(), ping: false },
   // Hourly; the job itself waits for the configured send hour and dedupes.
@@ -76,7 +78,8 @@ export async function startJobs() {
 
   // Catch up right after boot: billing state must be current before anyone looks.
   setTimeout(() => {
-    void recordRun('daily-billing', JOBS['daily-billing'].run)
+    void recordRun('recurring-expenses', JOBS['recurring-expenses'].run)
+      .then(() => recordRun('daily-billing', JOBS['daily-billing'].run))
       .then(() => recordRun('daily-digest', JOBS['daily-digest'].run))
       .catch(() => {})
   }, 5_000)

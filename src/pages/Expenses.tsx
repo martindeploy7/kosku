@@ -102,7 +102,7 @@ export default function Expenses() {
         { header: 'Kategori', accessor: (e) => e.category },
         { header: 'Properti', accessor: (e) => lookups.propertyName(e.propertyId) },
         { header: 'Kamar', accessor: (e) => lookups.roomName(e.roomId) },
-        { header: 'Berulang', accessor: (e) => (e.recurring ? 'Ya' : 'Tidak') },
+        { header: 'Berulang', accessor: (e) => e.recurring ? ({ weekly: 'Mingguan', monthly: 'Bulanan', yearly: 'Tahunan' }[e.recurrence ?? 'monthly']) : e.recurrenceParentId ? 'Otomatis' : 'Tidak' },
         { header: 'Jumlah', accessor: (e) => e.total, align: 'right' },
       ],
       { title: 'Laporan Pengeluaran', filename: `pengeluaran-${year}`, period: `Tahun ${year}`, company: companyName() },
@@ -317,7 +317,8 @@ export default function Expenses() {
                     <Td>
                       <div className="flex items-center gap-2">
                         <span className="font-semibold">{e.name}</span>
-                        {e.recurring && <Badge tone="info"><Repeat className="h-3 w-3" /> Rutin</Badge>}
+                        {e.recurring && <Badge tone="info"><Repeat className="h-3 w-3" /> {{ weekly: 'Mingguan', monthly: 'Bulanan', yearly: 'Tahunan' }[e.recurrence ?? 'monthly']}</Badge>}
+                        {e.recurrenceParentId && <Badge tone="muted"><Repeat className="h-3 w-3" /> Otomatis</Badge>}
                       </div>
                       {e.items.length > 1 && (
                         <p className="text-[11px] text-muted-foreground mt-0.5">{e.items.length} item</p>

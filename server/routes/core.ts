@@ -499,7 +499,24 @@ const expenseBody = z.object({
   note: z.string().max(2000).default(''),
   attachment: uuid.nullable().default(null),
   recurring: z.boolean().default(false),
+  recurrence: z.enum(['weekly', 'monthly', 'yearly']).nullable().optional(),
+  recurrenceEndDate: isoDate.nullable().optional(),
 })
+
+function normalizeExpenseRecurrence(input: {
+  recurring: boolean
+  recurrence?: 'weekly' | 'monthly' | 'yearly' | null
+  recurrenceEndDate?: string | null
+  date: string
+}) {
+  if (!input.recurring) return { recurrence: null, recurrenceEndDate: null }
+  const recurrence = input.recurrence ?? 'monthly'
+  const recurrenceEndDate = input.recurrenceEndDate ?? null
+  if (recurrenceEndDate && recurrenceEndDate < input.date) {
+    throw badRequest('Tanggal akhir pengulangan tidak boleh sebelum tanggal pengeluaran.')
+  }
+  return { recurrence, recurrenceEndDate }
+}
 
 coreRoutes.post('/expenses', async (c) => {
   const u = requireUser(c)
@@ -507,9 +524,11 @@ coreRoutes.post('/expenses', async (c) => {
   assertPropertyAccess(u, body.propertyId)
   const total = body.items.reduce((a, i) => a + i.amount, 0)
   if (total <= 0) throw badRequest('Total pengeluaran harus lebih dari 0.')
+  const recurrence = normalizeExpenseRecurrence(body)
   const [row] = await db.insert(schema.expenses).values({
     propertyId: body.propertyId, roomId: body.roomId, category: body.category, name: body.name, date: body.date,
-    items: body.items, total, note: body.note, attachmentFileId: body.attachment, recurring: body.recurring, createdBy: u.id,
+    items: body.items, total, note: body.note, attachmentFileId: body.attachment, recurring: body.recurring,
+    ...recurrence, createdBy: u.id,
   }).returning()
   await writeAudit(u, c.get('ip'), {
     action: 'expense.create', entityType: 'expense', entityId: row.id, propertyId: row.propertyId,
@@ -529,6 +548,14 @@ coreRoutes.patch('/expenses/:id', async (c) => {
   if (body.propertyId) assertPropertyAccess(u, body.propertyId)
   const { version: v, attachment, ...rest } = body
   const patch: Record<string, unknown> = { ...rest }
+  const recurrence = normalizeExpenseRecurrence({
+    recurring: body.recurring ?? e.recurring,
+    recurrence: body.recurrence !== undefined ? body.recurrence : e.recurrence,
+    recurrenceEndDate: body.recurrenceEndDate !== undefined ? body.recurrenceEndDate : e.recurrenceEndDate,
+    date: body.date ?? e.date,
+  })
+  patch.recurrence = recurrence.recurrence
+  patch.recurrenceEndDate = recurrence.recurrenceEndDate
   if (attachment !== undefined) patch.attachmentFileId = attachment
   if (rest.items) patch.total = rest.items.reduce((a, i) => a + i.amount, 0)
   const row = await updateVersioned(db, schema.expenses, id, v, patch)
@@ -546,4 +573,3 @@ coreRoutes.delete('/expenses/:id', async (c) => {
   assertPropertyAccess(u, e.propertyId)
   return deleteOrRequest(c, u, 'expense', id, optionalVersion(c.req.query('version')))
 })
-

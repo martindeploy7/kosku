@@ -1,0 +1,24 @@
+name: Wake Kosku daily jobs
+
+on:
+  schedule:
+    # 07:00 Asia/Jakarta. Render Free may be asleep; this request wakes it and
+    # the server's idempotent startup catch-up runs the daily jobs.
+    - cron: '0 0 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake app and verify database health
+        env:
+          APP_URL: ${{ vars.APP_URL || 'https://kosku-app.onrender.com' }}
+        run: |
+          set -euo pipefail
+          response="$(curl --fail --silent --show-error --retry 8 --retry-all-errors --retry-delay 15 --max-time 30 "$APP_URL/api/health")"
+          node -e 'const h=JSON.parse(process.argv[1]); if (!h.ok || h.db !== "ok") process.exit(1)' "$response"

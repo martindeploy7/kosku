@@ -123,8 +123,8 @@ export const actions = {
   deletePayment: (id: ID, reason?: string) => api.del<Del>(withReason(`/payments/${id}`, reason)),
 
   /* expenses */
-  addExpense: (input: Omit<Expense, 'id' | 'createdAt' | 'version' | 'total'>) => api.post<Expense>('/expenses', input),
-  updateExpense: (id: ID, patch: Partial<Omit<Expense, 'id' | 'createdAt' | 'version' | 'total'>>) =>
+  addExpense: (input: Omit<Expense, 'id' | 'createdAt' | 'version' | 'total' | 'recurrenceParentId'>) => api.post<Expense>('/expenses', input),
+  updateExpense: (id: ID, patch: Partial<Omit<Expense, 'id' | 'createdAt' | 'version' | 'total' | 'recurrenceParentId'>>) =>
     api.patch<Expense>(`/expenses/${id}`, { version: v('expenses', id), ...patch }),
   deleteExpense: (id: ID, reason?: string) => api.del<Del>(withReason(`/expenses/${id}?version=${v('expenses', id)}`, reason)),
 

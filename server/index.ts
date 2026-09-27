@@ -7,7 +7,7 @@ import { env } from './env'
 import { startJobs, stopJobs } from './jobs'
 import { errMeta, log } from './lib/log'
 import { initPush } from './services/push'
-import { initWhatsApp } from './wa/manager'
+import { initWhatsApp, stopWhatsApp } from './wa/manager'
 
 /** The database may still be starting (docker compose, `npm run dev`): wait instead of crashing. */
 async function waitForDatabase(attempts = 60) {
@@ -43,6 +43,7 @@ async function main() {
     stopping = true
     log.info(`Menerima ${signal}, mematikan dengan rapi…`)
     server.close()
+    await stopWhatsApp()
     await stopJobs()
     await sql.end({ timeout: 5 })
     process.exit(0)

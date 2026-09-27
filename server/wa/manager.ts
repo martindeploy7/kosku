@@ -152,6 +152,19 @@ export async function disconnect(propertyId: string, reason = 'Diputuskan oleh a
   log.info('WhatsApp diputuskan', { propertyId, reason })
 }
 
+/** Stop sockets during a process restart without logging the linked phone out. */
+export async function stopWhatsApp() {
+  await Promise.all([...sessions.values()].map(async (s) => {
+    s.stopping = true
+    try {
+      s.sock?.end(undefined)
+      s.sock = null
+    } finally {
+      s.stopping = false
+    }
+  }))
+}
+
 /** Stop the socket but keep credentials (used when a property is soft-deleted). */
 async function suspend(propertyId: string) {
   const s = sessions.get(propertyId)

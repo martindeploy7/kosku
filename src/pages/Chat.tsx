@@ -1,8 +1,8 @@
 import * as React from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlertTriangle, ArrowLeft, Check, CheckCheck, Clock, FileText, Loader2, MessageCirclePlus, MessageSquareDashed,
-  Receipt, RotateCcw, Send, User, WifiOff,
+  AlertTriangle, ArrowLeft, Check, CheckCheck, CheckCircle2, Clock, FileText, Loader2, MessageCirclePlus, MessageSquareDashed,
+  Receipt, RotateCcw, Send, User, Wifi, WifiOff,
 } from 'lucide-react'
 import { Avatar, Badge, Button, Card, EmptyState, Modal, SearchInput, Select } from '@/components/ui'
 import { PageHeader } from '@/components/shared'
@@ -113,6 +113,7 @@ export default function Chat() {
 
   const activeTenant = phone ? tenantByPhone.get(normalizePhone(phone)) : undefined
   const activeRental = activeTenant ? rentals.find((r) => r.tenantId === activeTenant.id && isCurrentRental(r)) : undefined
+  const selectedProperty = properties.find((p) => p.id === propertyId)
   const connected = waStatus[propertyId] === 'connected'
 
   const send = async () => {
@@ -152,13 +153,29 @@ export default function Chat() {
         }
       />
 
-      {!connected && propertyId && (
-        <div className="card mb-4 border-warning/40 bg-warning-soft/60 px-4 py-3 flex flex-wrap items-center gap-3">
-          <WifiOff className="h-4 w-4 text-warning shrink-0" />
-          <p className="text-sm flex-1 min-w-[220px]">
-            WhatsApp {lookups.propertyName(propertyId)} belum terhubung. Pesan yang Anda kirim menunggu di antrean dan terkirim setelah terhubung.
-          </p>
-          <Button size="sm" variant="outline" onClick={() => navigate(`/properties/${propertyId}?tab=whatsapp`)}>Hubungkan</Button>
+      {selectedProperty && (
+        <div
+          role={connected ? 'status' : 'alert'}
+          className={cn(
+            'mb-4 rounded-lg border px-4 py-3 flex flex-wrap items-center gap-3',
+            connected ? 'border-success/40 bg-success-soft/60' : 'border-warning/40 bg-warning-soft/60',
+          )}
+        >
+          {connected ? <CheckCircle2 className="h-4 w-4 text-success shrink-0" /> : <WifiOff className="h-4 w-4 text-warning shrink-0" />}
+          <div className="min-w-[220px] flex-1">
+            <p className={cn('text-sm font-semibold flex items-center gap-1.5', connected ? 'text-success' : 'text-warning')}>
+              {connected ? 'WhatsApp terhubung' : 'WhatsApp belum terhubung'}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Sumber pesan: <span className="font-medium text-foreground">{selectedProperty.name}</span>
+              <span className="mx-1.5">·</span>{formatPhoneDisplay(selectedProperty.phone)}
+            </p>
+          </div>
+          {connected ? (
+            <Badge tone="success"><Wifi className="h-3 w-3" /> Aktif</Badge>
+          ) : (
+            <Button size="sm" variant="outline" onClick={() => navigate(`/properties/${propertyId}?tab=whatsapp`)}>Hubungkan</Button>
+          )}
         </div>
       )}
 

@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: kosku-app
+    runtime: docker
+    plan: free
+    region: singapore
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PUBLIC_URL
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_TIMEZONE
+        value: Asia/Jakarta
+      - key: INITIAL_ADMIN_USERNAME
+        value: admin
+      - key: INITIAL_ADMIN_NAME
+        value: Pemilik
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SESSION_IDLE_HOURS
+        value: "72"
+      - key: SESSION_MAX_DAYS
+        value: "30"
+      - key: STORAGE_DRIVER
+        value: s3
+      - key: S3_REGION
+        value: auto
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: UPLOAD_MAX_MB
+        value: "10"
+      - key: WA_DRIVER
+        value: mock
+      - key: WA_MIN_DELAY_MS
+        value: "4000"
+      - key: WA_MAX_DELAY_MS
+        value: "9000"
+      - key: JOBS_ENABLED
+        value: "false"
+      - key: HEALTHCHECK_URL
+        sync: false

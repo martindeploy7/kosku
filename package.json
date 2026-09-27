@@ -5,6 +5,10 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently -k -n db,api,web -c gray,blue,magenta \"npm:dev:db\" \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:db:docker": "docker compose --env-file .env.development -f docker-compose.yml -f docker-compose.dev.yml up -d db",
+    "dev:db:docker:down": "docker compose --env-file .env.development -f docker-compose.yml -f docker-compose.dev.yml down",
+    "dev:db:host": "node scripts/dev-db-host.mjs",
+    "dev:host": "concurrently -k -n api,web -c blue,magenta \"npm:dev:server\" \"npm:dev:web\"",
     "dev:db": "node scripts/dev-db.mjs",
     "dev:server": "node scripts/dev-server.mjs",
     "dev:web": "vite",

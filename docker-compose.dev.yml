@@ -1,0 +1,11 @@
+# Local development override: run PostgreSQL 17 in Docker, while the API and
+# Vite frontend run natively on the host for fast reloads.
+services:
+  db:
+    ports:
+      - "127.0.0.1:54329:5432"
+    volumes:
+      - kosku_dev_pgdata:/var/lib/postgresql/data
+
+volumes:
+  kosku_dev_pgdata:

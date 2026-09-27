@@ -439,6 +439,40 @@ function sortRooms(rooms: Room[], propertyName: (id: string) => string) {
     a.name.localeCompare(b.name, 'id', { numeric: true }))
 }
 
+type ScheduleOrder = 'room' | 'due'
+
+function scheduleDueMeta(due: NextDue | null, today: string) {
+  if (!due) return {
+    rank: 3,
+    label: 'Tanpa jatuh tempo',
+    bar: 'bg-muted-foreground/55 text-white',
+    dot: 'bg-muted-foreground',
+    text: 'text-muted-foreground',
+  }
+  const days = daysBetween(today, due.date)
+  if (days <= 0) return {
+    rank: 0,
+    label: dueLabel(due.date, today),
+    bar: 'bg-danger text-white',
+    dot: 'bg-danger',
+    text: 'text-danger',
+  }
+  if (days <= 7) return {
+    rank: 1,
+    label: dueLabel(due.date, today),
+    bar: 'bg-warning text-accent-foreground',
+    dot: 'bg-warning',
+    text: 'text-warning',
+  }
+  return {
+    rank: 2,
+    label: dueLabel(due.date, today),
+    bar: 'bg-success text-white',
+    dot: 'bg-success',
+    text: 'text-success',
+  }
+}
+
 function RoomSchedule() {
   const rooms = useStore((s) => s.rooms)
   const rentals = useStore((s) => s.rentals)
@@ -449,46 +483,100 @@ function RoomSchedule() {
   const [startDate, setStartDate] = React.useState(today)
   const [days, setDays] = React.useState(14)
   const [propertyId, setPropertyId] = React.useState('')
+  const [order, setOrder] = React.useState<ScheduleOrder>('room')
 
   const dates = React.useMemo(
     () => Array.from({ length: days }, (_, i) => addDays(startDate, i)),
     [startDate, days],
   )
 
-  const visibleRooms = sortRooms(rooms, lookups.propertyName).filter((r) => !propertyId || r.propertyId === propertyId)
+  const scheduleRows = React.useMemo(() => {
+    const rows = sortRooms(rooms, lookups.propertyName)
+      .filter((room) => !propertyId || room.propertyId === propertyId)
+      .map((room) => {
+        const rental = currentRentalOfRoom(room.id, rentals, today)
+        return { room, rental, due: rental ? nextDueOfRental(rental, invoices) : null }
+      })
+    if (order === 'room') return rows
+    return rows.sort((a, b) => {
+      const aMeta = scheduleDueMeta(a.due, today)
+      const bMeta = scheduleDueMeta(b.due, today)
+      return aMeta.rank - bMeta.rank ||
+        (a.due?.date ?? '9999-12-31').localeCompare(b.due?.date ?? '9999-12-31') ||
+        a.room.name.localeCompare(b.room.name, 'id', { numeric: true })
+    })
+  }, [rooms, rentals, invoices, today, propertyId, order, lookups])
   const rangeEnd = addDays(startDate, days - 1)
 
   return (
     <Card>
-      <div className="p-5 border-b border-border flex flex-wrap items-end gap-4">
-        <Field label="Pilih tanggal" className="w-44">
-          <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-        </Field>
-        <Field label="Hari yang tampil" className="w-32">
-          <Select
-            value={String(days)}
-            onChange={(v) => setDays(Number(v))}
-            options={[7, 14, 21, 30].map((d) => ({ value: String(d), label: `${d} hari` }))}
-          />
-        </Field>
-        <Field label="Properti" className="w-56">
-          <Select
-            value={propertyId}
-            onChange={setPropertyId}
-            placeholder="Semua properti"
-            options={[{ value: '', label: 'Semua properti' }, ...properties.map((p) => ({ value: p.id, label: p.name }))]}
-          />
-        </Field>
-        <div className="ml-auto flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-success" /> Terisi · Lunas</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-danger" /> Menunggak</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-warning" /> Dipesan · DP</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-primary/60" /> Dipesan · Lunas</span>
-          <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded border border-dashed border-border bg-muted" /> Kosong</span>
+      <div className="p-5 border-b border-border space-y-4">
+        <div className="flex flex-wrap items-end gap-4">
+          <Field label="Urutan" className="w-full sm:w-auto">
+            <div className="inline-flex w-full sm:w-auto items-center rounded-md border border-border bg-surface p-0.5">
+              {([
+                { value: 'room' as const, label: 'Nomor kamar', icon: List },
+                { value: 'due' as const, label: 'Jatuh tempo', icon: AlarmClock },
+              ]).map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  aria-pressed={order === option.value}
+                  onClick={() => setOrder(option.value)}
+                  className={cn(
+                    'focus-ring flex h-9 flex-1 items-center justify-center gap-2 rounded-[10px] px-3 text-xs font-bold transition sm:flex-none',
+                    order === option.value ? 'bg-primary-soft text-primary' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  <option.icon className="h-4 w-4" /> {option.label}
+                </button>
+              ))}
+            </div>
+          </Field>
+          <Field label="Pilih tanggal" className="w-44">
+            <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+          </Field>
+          <Field label="Hari yang tampil" className="w-32">
+            <Select
+              value={String(days)}
+              onChange={(v) => setDays(Number(v))}
+              options={[7, 14, 21, 30].map((d) => ({ value: String(d), label: `${d} hari` }))}
+            />
+          </Field>
+          <Field label="Properti" className="w-56">
+            <Select
+              value={propertyId}
+              onChange={setPropertyId}
+              placeholder="Semua properti"
+              options={[{ value: '', label: 'Semua properti' }, ...properties.map((p) => ({ value: p.id, label: p.name }))]}
+            />
+          </Field>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-2 text-xs text-muted-foreground">
+          <p>{order === 'due' ? 'Baris paling mendesak tampil lebih dulu; panjang bar tetap menunjukkan durasi sewa.' : 'Kamar diurutkan natural per properti; warna menunjukkan status hunian.'}</p>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+            {order === 'due' ? (
+              <>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-danger" /> Hari ini / terlambat</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-warning" /> 1–7 hari lagi</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-success" /> Lebih dari 7 hari</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-muted-foreground/55" /> Tanpa jatuh tempo</span>
+              </>
+            ) : (
+              <>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-success" /> Terisi · Lunas</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-danger" /> Menunggak</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-warning" /> Dipesan · DP</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded bg-primary/60" /> Dipesan · Lunas</span>
+                <span className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded border border-dashed border-border bg-muted" /> Kosong</span>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {visibleRooms.length === 0 ? (
+      {scheduleRows.length === 0 ? (
         <EmptyState icon={DoorOpen} title="Belum ada kamar" description="Tambahkan kamar terlebih dahulu untuk melihat jadwal." />
       ) : (
         <div className="overflow-x-auto">
@@ -497,8 +585,11 @@ function RoomSchedule() {
             <div className="flex border-b border-border bg-muted/50 sticky top-0 z-10">
               {/* sticky so the room stays identifiable while the timeline is
                   scrolled sideways — the normal case on a phone. */}
-              <div className="w-28 sm:w-44 shrink-0 sticky left-0 z-20 bg-muted px-3 sm:px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground border-r border-border">
-                Kamar
+              <div className={cn(
+                'shrink-0 sticky left-0 z-20 bg-muted px-3 sm:px-4 py-3 text-[11px] font-bold uppercase tracking-wider text-muted-foreground border-r border-border',
+                order === 'due' ? 'w-40 sm:w-52' : 'w-28 sm:w-44',
+              )}>
+                {order === 'due' ? 'Kamar · Jatuh tempo' : 'Kamar'}
               </div>
               {dates.map((d) => {
                 const dt = parseISO(d)
@@ -523,16 +614,26 @@ function RoomSchedule() {
             </div>
 
             {/* rows */}
-            {visibleRooms.map((room) => {
+            {scheduleRows.map(({ room, due }) => {
               const roomRentals = rentals.filter(
                 (r) => r.roomId === room.id && (r.status === 'active' || r.status === 'booked' || r.status === 'ended') &&
                   r.startDate <= rangeEnd && (!r.endDate || r.endDate >= startDate),
               )
+              const rowDueMeta = scheduleDueMeta(due, today)
               return (
                 <div key={room.id} className="flex border-b border-border/60 hover:bg-muted/20 transition">
-                  <div className="w-28 sm:w-44 shrink-0 sticky left-0 z-10 bg-surface px-3 sm:px-4 py-3 border-r border-border">
+                  <div className={cn(
+                    'shrink-0 sticky left-0 z-10 bg-surface px-3 sm:px-4 py-3 border-r border-border',
+                    order === 'due' ? 'w-40 sm:w-52' : 'w-28 sm:w-44',
+                  )}>
                     <p className="font-semibold text-sm truncate">{room.name}</p>
                     <p className="text-[10px] text-muted-foreground truncate">{lookups.propertyName(room.propertyId)}</p>
+                    {order === 'due' && (
+                      <div className={cn('mt-1.5 flex items-center gap-1.5 text-[10px] font-bold', rowDueMeta.text)}>
+                        <span className={cn('h-2 w-2 shrink-0 rounded-full', rowDueMeta.dot)} />
+                        <span className="truncate">{rowDueMeta.label}{due ? ` · ${formatDate(due.date)}` : ''}</span>
+                      </div>
+                    )}
                   </div>
                   <div className="relative flex">
                     {dates.map((d) => {
@@ -541,7 +642,7 @@ function RoomSchedule() {
                       return (
                         <div
                           key={d}
-                          className={cn('w-[52px] h-[58px] shrink-0 border-r border-border/40', isWeekend && 'bg-muted/40')}
+                          className={cn('w-[52px] shrink-0 border-r border-border/40', order === 'due' ? 'h-[70px]' : 'h-[58px]', isWeekend && 'bg-muted/40')}
                         />
                       )
                     })}
@@ -552,17 +653,27 @@ function RoomSchedule() {
                       const width = Math.max(1, daysBetween(from, to) + 1)
                       const future = r.startDate > today
                       const late = r.status === 'active' && invoices.some((i) => i.rentalId === r.id && i.status !== 'batal' && i.dueDate < today && i.total > i.paidAmount)
+                      const rentalDue = nextDueOfRental(r, invoices)
+                      const rentalDueMeta = scheduleDueMeta(rentalDue, today)
+                      const title = `${lookups.tenantName(r.tenantId)} · ${formatDate(r.startDate)} — ${r.endDate ? formatDate(r.endDate) : 'sekarang'}`
                       return (
                         <div
                           key={r.id}
                           className={cn(
-                            'absolute top-2 h-[42px] rounded-md flex items-center px-2.5 text-white text-xs font-semibold shadow-xs overflow-hidden',
-                            r.status === 'booked' ? 'bg-warning' : r.status === 'ended' ? 'bg-muted-foreground/50' : late ? 'bg-danger' : future ? 'bg-primary/70' : 'bg-success',
+                            'absolute top-2 h-[42px] rounded-md flex items-center px-2.5 text-xs font-semibold shadow-xs overflow-hidden',
+                            order === 'due'
+                              ? rentalDueMeta.bar
+                              : r.status === 'booked' ? 'bg-warning text-accent-foreground'
+                                : r.status === 'ended' ? 'bg-muted-foreground/50 text-white'
+                                  : late ? 'bg-danger text-white'
+                                    : future ? 'bg-primary/70 text-white' : 'bg-success text-white',
                           )}
                           style={{ left: offset * 52 + 3, width: width * 52 - 6 }}
-                          title={`${lookups.tenantName(r.tenantId)} · ${formatDate(r.startDate)} — ${r.endDate ? formatDate(r.endDate) : 'sekarang'}`}
+                          title={order === 'due' ? `${title} · ${rentalDueMeta.label}${rentalDue ? ` (${formatDate(rentalDue.date)})` : ''}` : title}
                         >
-                          <span className="truncate">{lookups.tenantName(r.tenantId)}</span>
+                          <span className="truncate">
+                            {lookups.tenantName(r.tenantId)}{order === 'due' ? ` · ${rentalDueMeta.label}` : ''}
+                          </span>
                         </div>
                       )
                     })}

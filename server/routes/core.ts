@@ -538,6 +538,35 @@ coreRoutes.post('/expenses', async (c) => {
   return c.json(toExpense(row), 201)
 })
 
+coreRoutes.post('/expenses/batch', async (c) => {
+  const u = requireUser(c)
+  const { expenses: bodies } = parse(z.object({ expenses: z.array(expenseBody).min(1).max(20) }), await jsonBody(c))
+  bodies.forEach((body) => assertPropertyAccess(u, body.propertyId))
+
+  const rows = await db.transaction(async (tx) => {
+    const created: (typeof schema.expenses.$inferSelect)[] = []
+    for (const body of bodies) {
+      const total = body.items.reduce((a, i) => a + i.amount, 0)
+      if (total <= 0) throw badRequest(`Total ${body.name} harus lebih dari 0.`)
+      const recurrence = normalizeExpenseRecurrence(body)
+      const [row] = await tx.insert(schema.expenses).values({
+        propertyId: body.propertyId, roomId: body.roomId, category: body.category, name: body.name, date: body.date,
+        items: body.items, total, note: body.note, attachmentFileId: body.attachment, recurring: body.recurring,
+        ...recurrence, createdBy: u.id,
+      }).returning()
+      await writeAudit(u, c.get('ip'), {
+        action: 'expense.create', entityType: 'expense', entityId: row.id, propertyId: row.propertyId,
+        summary: `Catat pengeluaran ${row.name} (Rp ${total.toLocaleString('id-ID')}) dari template`,
+      }, tx)
+      created.push(row)
+    }
+    return created
+  })
+
+  bumpRev()
+  return c.json(rows.map(toExpense), 201)
+})
+
 coreRoutes.patch('/expenses/:id', async (c) => {
   const u = requireUser(c)
   const id = parse(uuid, c.req.param('id'))

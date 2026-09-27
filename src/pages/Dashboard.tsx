@@ -96,6 +96,7 @@ export default function Dashboard() {
               sublabel={`${d.waitlist.length} calon di daftar tunggu`}
               icon={Users}
               tone="primary"
+              appearance="watermark"
               onClick={() => navigate('/tenants')}
             />
             <StatCard
@@ -104,6 +105,7 @@ export default function Dashboard() {
               sublabel={`${d.counts.rooms} kamar dikelola`}
               icon={Building2}
               tone="info"
+              appearance="watermark"
               onClick={() => navigate('/properties')}
             />
             <StatCard
@@ -112,6 +114,7 @@ export default function Dashboard() {
               sublabel={`${d.occupiedRooms.length} dari ${d.counts.rooms} kamar terisi`}
               icon={DoorOpen}
               tone="success"
+              appearance="watermark"
               onClick={() => navigate('/rooms')}
             />
           </div>

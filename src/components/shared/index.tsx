@@ -95,7 +95,7 @@ export function PageHeader({
 /* ------------------------------------------------------------------ StatCard */
 
 export function StatCard({
-  label, value, sublabel, icon: Icon, tone = 'primary', trend, onClick, className,
+  label, value, sublabel, icon: Icon, tone = 'primary', trend, onClick, className, appearance = 'default',
 }: {
   label: string
   value: React.ReactNode
@@ -105,6 +105,7 @@ export function StatCard({
   trend?: { value: number; label?: string }
   onClick?: () => void
   className?: string
+  appearance?: 'default' | 'watermark'
 }) {
   const tones = {
     primary: 'bg-primary-soft text-primary',
@@ -114,31 +115,45 @@ export function StatCard({
     info: 'bg-info-soft text-info',
     accent: 'bg-accent/15 text-accent',
   }
+  const watermarkTones = {
+    primary: 'bg-gradient-to-br from-surface via-surface to-primary-soft/80 text-primary',
+    success: 'bg-gradient-to-br from-surface via-surface to-success-soft/80 text-success',
+    warning: 'bg-gradient-to-br from-surface via-surface to-warning-soft/80 text-warning',
+    danger: 'bg-gradient-to-br from-surface via-surface to-danger-soft/80 text-danger',
+    info: 'bg-gradient-to-br from-surface via-surface to-info-soft/80 text-info',
+    accent: 'bg-gradient-to-br from-surface via-surface to-accent/15 text-accent',
+  }
 
   const Comp = onClick ? 'button' : 'div'
+  const watermark = appearance === 'watermark'
 
   return (
     <Comp
       onClick={onClick}
       className={cn(
         'card p-5 text-left w-full transition-all',
+        watermark && 'relative isolate overflow-hidden min-h-[142px]',
+        watermark && watermarkTones[tone],
         onClick && 'hover:shadow-md hover:-translate-y-0.5 cursor-pointer focus-ring',
         className,
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      {watermark && Icon && (
+        <Icon aria-hidden="true" className="absolute -z-0 -right-4 -bottom-7 h-32 w-32 opacity-[0.11] sm:h-36 sm:w-36" />
+      )}
+      <div className="relative z-10 flex items-start justify-between gap-3">
+        <div className={cn('min-w-0', watermark && 'max-w-[78%]')}>
           <p className="text-xs font-semibold text-muted-foreground truncate">{label}</p>
           <p className="text-[26px] leading-tight font-extrabold tracking-tight mt-1.5 tabular-nums truncate">{value}</p>
         </div>
-        {Icon && (
+        {Icon && !watermark && (
           <div className={cn('h-10 w-10 rounded-xl flex items-center justify-center shrink-0', tones[tone])}>
             <Icon className="h-5 w-5" />
           </div>
         )}
       </div>
       {(sublabel || trend) && (
-        <div className="flex items-center gap-2 mt-3 text-xs">
+        <div className="relative z-10 flex items-center gap-2 mt-3 text-xs">
           {trend && (
             <span
               className={cn(

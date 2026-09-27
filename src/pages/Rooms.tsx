@@ -94,6 +94,8 @@ export default function Rooms() {
   )
 
   const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+  const dueTodayCount = enriched.filter((r) => r.due?.date === today).length
+  const availableSoonCount = enriched.filter((r) => r.status === 'akan_tersedia').length
 
   const openCreate = () => { setEditRoom(null); setModalOpen(true) }
   const openEdit = (room: Room) => { setEditRoom(room); setModalOpen(true) }
@@ -102,7 +104,7 @@ export default function Rooms() {
     <>
       <PageHeader
         title="Kamar"
-        description={`${rooms.length} kamar · ${enriched.filter((e) => e.status === 'tersedia').length} tersedia`}
+        description={`${rooms.length} kamar · ${dueTodayCount} jatuh tempo hari ini · ${availableSoonCount} akan tersedia`}
         actions={<Button onClick={openCreate}><Plus className="h-4 w-4" /> Tambah kamar</Button>}
       />
 
@@ -138,9 +140,9 @@ export default function Rooms() {
                   value={view}
                   onChange={(v) => setView(v as 'grid' | 'list' | 'due')}
                   options={[
+                    { value: 'due', icon: AlarmClock, label: 'Prioritas jatuh tempo' },
                     { value: 'grid', icon: LayoutGrid, label: 'Urut nomor kamar (kartu)' },
                     { value: 'list', icon: List, label: 'Urut nomor kamar (tabel)' },
-                    { value: 'due', icon: AlarmClock, label: 'Urut jatuh tempo' },
                   ]}
                 />
               </div>
@@ -394,6 +396,11 @@ function DueView({ rows, onPay }: { rows: RoomRow[]; onPay: (tenantId: string, i
                       </button>
                     ) : <p className="text-sm text-muted-foreground">—</p>}
                     <Badge tone={st.tone as 'success'} className="mt-1">{st.label}</Badge>
+                    {rental?.endDate && status === 'akan_tersedia' && (
+                      <p className="mt-1.5 text-[11px] font-semibold text-success">
+                        Tersedia {dueLabel(rental.endDate, today)} · {formatDate(rental.endDate)}
+                      </p>
+                    )}
                   </div>
                   {due && rental && (() => {
                     const arrears = due.kind === 'invoice' ? arrearsOf(rental.id) : null

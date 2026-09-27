@@ -4,7 +4,7 @@ import { FileSignature, Info, Paperclip, Plus, Trash2, X } from 'lucide-react'
 import {
   Button, Checkbox, CurrencyInput, DateInput, Divider, Field, Input, Modal, PhoneInput, RadioCard, Select, Textarea,
 } from '@/components/ui'
-import { actions, type CreateRentalInput } from '@/lib/actions'
+import { actions, type CreateExpenseInput, type CreateRentalInput } from '@/lib/actions'
 import { EXPENSE_CATEGORIES, GENDERS, RENT_TYPES, ROOM_CONDITIONS } from '@/lib/constants'
 import { isCurrentRental, planFirstInvoice, servicePriceFor } from '@/lib/finance'
 import { useLookups } from '@/lib/selectors'
@@ -553,11 +553,13 @@ export function ExpenseFormModal({
 }) {
   const properties = useStore((s) => s.properties)
   const rooms = useStore((s) => s.rooms)
+  const expenses = useStore((s) => s.expenses)
   const today = useStore((s) => s.today)
   const run = useStore((s) => s.run)
   const toast = useStore((s) => s.toast)
 
   const [propertyId, setPropertyId] = React.useState(presetPropertyId ?? '')
+  const [mode, setMode] = React.useState<'single' | 'template'>('single')
   const [roomId, setRoomId] = React.useState('')
   const [category, setCategory] = React.useState('')
   const [name, setName] = React.useState('')
@@ -569,20 +571,59 @@ export function ExpenseFormModal({
   const [recurrenceEndDate, setRecurrenceEndDate] = React.useState('')
   const [receipt, setReceipt] = React.useState<File | null>(null)
   const [saving, setSaving] = React.useState(false)
+  const [templateRows, setTemplateRows] = React.useState<Record<string, { checked: boolean; amount: number }>>({})
+
+  const latestByCategory = React.useMemo(() => {
+    const latest = new Map<string, (typeof expenses)[number]>()
+    const candidates = [...expenses]
+      .filter((e) => e.propertyId === propertyId)
+      .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt.localeCompare(a.createdAt))
+    candidates.forEach((expense) => {
+      if (!latest.has(expense.category)) latest.set(expense.category, expense)
+    })
+    return latest
+  }, [expenses, propertyId])
 
   React.useEffect(() => {
     if (!open) return
     setPropertyId(presetPropertyId ?? (properties.length === 1 ? properties[0].id : ''))
-    setRoomId(''); setCategory(''); setName(''); setDate(today)
+    setMode('single'); setRoomId(''); setCategory(''); setName(''); setDate(today)
     setItems([{ name: '', amount: 0 }]); setNote(''); setRecurring(false)
     setRecurrence('monthly'); setRecurrenceEndDate(''); setReceipt(null)
   }, [open, presetPropertyId, today, properties])
 
+  React.useEffect(() => {
+    if (!open || !propertyId) return
+    setTemplateRows(Object.fromEntries(EXPENSE_CATEGORIES.map((expenseCategory) => [
+      expenseCategory,
+      { checked: false, amount: latestByCategory.get(expenseCategory)?.total ?? 0 },
+    ])))
+  }, [open, propertyId, latestByCategory])
+
   const subtotal = sum(items, (i) => i.amount)
   const propertyRooms = rooms.filter((r) => r.propertyId === propertyId)
+  const selectedTemplates = EXPENSE_CATEGORIES.filter((expenseCategory) => templateRows[expenseCategory]?.checked)
+  const templateTotal = sum(selectedTemplates, (expenseCategory) => templateRows[expenseCategory]?.amount ?? 0)
 
   const submit = async () => {
     if (!propertyId) return toast({ title: 'Pilih properti terlebih dahulu', variant: 'error' })
+    if (mode === 'template') {
+      if (!selectedTemplates.length) return toast({ title: 'Pilih minimal satu jenis pengeluaran', variant: 'error' })
+      const invalid = selectedTemplates.find((expenseCategory) => (templateRows[expenseCategory]?.amount ?? 0) <= 0)
+      if (invalid) return toast({ title: `Masukkan nominal untuk ${invalid}`, variant: 'error' })
+      const batch: CreateExpenseInput[] = selectedTemplates.map((expenseCategory) => ({
+        propertyId, roomId: null, category: expenseCategory, name: expenseCategory, date,
+        items: [{ name: expenseCategory, amount: templateRows[expenseCategory].amount }],
+        note, attachment: null, recurring: false, recurrence: null, recurrenceEndDate: null,
+      }))
+      setSaving(true)
+      const created = await run(() => actions.addExpensesBatch(batch), {
+        success: `${batch.length} pengeluaran senilai ${formatIDR(templateTotal)} dicatat`,
+      })
+      setSaving(false)
+      if (created) onClose()
+      return
+    }
     if (!name.trim()) return toast({ title: 'Nama pengeluaran wajib diisi', variant: 'error' })
     if (!category) return toast({ title: 'Pilih kategori pengeluaran', variant: 'error' })
     if (subtotal <= 0) return toast({ title: 'Total pengeluaran harus lebih dari 0', variant: 'error' })
@@ -609,17 +650,34 @@ export function ExpenseFormModal({
       footer={
         <>
           <Button variant="ghost" onClick={onClose}>Batal</Button>
-          <Button onClick={submit} loading={saving} disabled={!propertyId}>Simpan pengeluaran</Button>
+          <Button onClick={submit} loading={saving} disabled={!propertyId}>
+            {mode === 'template' ? `Simpan ${selectedTemplates.length || ''} pengeluaran`.trim() : 'Simpan pengeluaran'}
+          </Button>
         </>
       }
     >
       <div className="space-y-5">
+        <div className="grid sm:grid-cols-2 gap-3">
+          <RadioCard
+            checked={mode === 'single'}
+            onChange={() => setMode('single')}
+            title="Satu pengeluaran"
+            description="Isi rincian lengkap, lampiran, atau jadwal berulang."
+          />
+          <RadioCard
+            checked={mode === 'template'}
+            onChange={() => setMode('template')}
+            title="Pakai template historis"
+            description="Centang beberapa biaya rutin dengan nominal terakhir."
+          />
+        </div>
+
         <Field label="Properti" required>
           <Select value={propertyId} onChange={(v) => { setPropertyId(v); setRoomId('') }} placeholder="Pilih properti"
             options={properties.map((p) => ({ value: p.id, label: p.name }))} />
         </Field>
 
-        {propertyId && (
+        {propertyId && mode === 'single' && (
           <>
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Kamar (opsional)">
@@ -693,6 +751,89 @@ export function ExpenseFormModal({
                   </p>
                 </div>
               )}
+            </div>
+          </>
+        )}
+
+        {propertyId && mode === 'template' && (
+          <>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-bold">Pilih biaya yang ingin dicatat</p>
+                <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+                  Nominal diisi dari transaksi terakhir pada properti ini dan tetap bisa diubah.
+                </p>
+              </div>
+              {latestByCategory.size > 0 && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setTemplateRows((rows) => Object.fromEntries(EXPENSE_CATEGORIES.map((expenseCategory) => [
+                    expenseCategory,
+                    { ...rows[expenseCategory], checked: Boolean(rows[expenseCategory]?.amount) },
+                  ])))}
+                >
+                  Pilih yang pernah dipakai
+                </Button>
+              )}
+            </div>
+
+            <div className="overflow-hidden rounded-lg border border-border divide-y divide-border">
+              {EXPENSE_CATEGORIES.map((expenseCategory) => {
+                const row = templateRows[expenseCategory] ?? { checked: false, amount: 0 }
+                const previous = latestByCategory.get(expenseCategory)
+                return (
+                  <div
+                    key={expenseCategory}
+                    className={cn(
+                      'grid gap-3 px-4 py-3 transition-colors sm:grid-cols-[minmax(0,1fr)_180px] sm:items-center',
+                      row.checked ? 'bg-primary-soft/35' : 'bg-surface',
+                    )}
+                  >
+                    <Checkbox
+                      checked={row.checked}
+                      onChange={(checked) => setTemplateRows((rows) => ({
+                        ...rows,
+                        [expenseCategory]: { ...row, checked },
+                      }))}
+                      label={expenseCategory}
+                      description={previous
+                        ? `Terakhir ${formatIDR(previous.total)} pada ${formatDate(previous.date)}`
+                        : 'Belum ada riwayat pada properti ini'}
+                    />
+                    <CurrencyInput
+                      aria-label={`Nominal ${expenseCategory}`}
+                      disabled={!row.checked}
+                      value={row.amount}
+                      onChange={(amount) => setTemplateRows((rows) => ({
+                        ...rows,
+                        [expenseCategory]: { ...row, amount },
+                      }))}
+                    />
+                  </div>
+                )
+              })}
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Field label="Tanggal" required>
+                <DateInput value={date} onChange={setDate} max={today} />
+              </Field>
+              <Field label="Catatan bersama (opsional)">
+                <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Contoh: biaya operasional September" />
+              </Field>
+            </div>
+
+            <div className="flex items-center justify-between gap-4 rounded-lg bg-muted/60 px-4 py-3">
+              <div>
+                <p className="text-xs text-muted-foreground">Dipilih</p>
+                <p className="text-sm font-bold">{selectedTemplates.length} jenis pengeluaran</p>
+              </div>
+              <div className="text-right">
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="text-lg font-extrabold tabular-nums">{formatIDR(templateTotal)}</p>
+              </div>
             </div>
           </>
         )}

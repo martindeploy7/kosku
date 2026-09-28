@@ -1,4 +1,4 @@
-import { and, eq, isNull, lt, ne, or, sql as dsql } from 'drizzle-orm'
+import { and, desc, eq, isNull, lt, ne, notInArray, or, sql as dsql } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { Role } from '@shared/types'
@@ -58,6 +58,9 @@ export async function toSessionUser(u: UserRow): Promise<SessionUser> {
 const idleMs = () => env.SESSION_IDLE_HOURS * 3600_000
 const maxMs = () => env.SESSION_MAX_DAYS * 86400_000
 
+/** Cap how many devices "Perangkat yang masuk" can accumulate per account. */
+export const MAX_SESSIONS_PER_USER = 10
+
 export async function createSession(c: Context, userId: string, ip: string) {
   const token = randomToken(32)
   const now = new Date()
@@ -68,6 +71,17 @@ export async function createSession(c: Context, userId: string, ip: string) {
     userAgent: (c.req.header('user-agent') ?? '').slice(0, 300),
     ip,
   })
+  // Prune oldest devices beyond the cap so a burst of logins can't grow this unbounded.
+  const keep = await db.select({ id: schema.sessions.id }).from(schema.sessions)
+    .where(eq(schema.sessions.userId, userId))
+    .orderBy(desc(schema.sessions.lastSeenAt))
+    .limit(MAX_SESSIONS_PER_USER)
+  if (keep.length === MAX_SESSIONS_PER_USER) {
+    await db.delete(schema.sessions).where(and(
+      eq(schema.sessions.userId, userId),
+      notInArray(schema.sessions.id, keep.map((s) => s.id)),
+    ))
+  }
   setCookie(c, SESSION_COOKIE, token, {
     httpOnly: true,
     secure: env.cookieSecure,

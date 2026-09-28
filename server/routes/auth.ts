@@ -3,7 +3,7 @@ import { Hono } from 'hono'
 import { type AppEnv, requireUser } from '../auth/context'
 import { burnVerifyTime, hashPassword, passwordProblem, verifyPassword } from '../auth/password'
 import { clear, hit } from '../auth/rateLimit'
-import { createSession, destroySession, revokeUserSessions, toSessionUser } from '../auth/session'
+import { createSession, destroySession, MAX_SESSIONS_PER_USER, revokeUserSessions, toSessionUser } from '../auth/session'
 import { db, iso, schema } from '../db/client'
 import { env } from '../env'
 import { badRequest, HttpError, unauthorized } from '../lib/errors'
@@ -113,7 +113,8 @@ authRoutes.post('/change-password', async (c) => {
 
 authRoutes.get('/sessions', async (c) => {
   const u = requireUser(c)
-  const rows = await db.select().from(schema.sessions).where(eq(schema.sessions.userId, u.id)).orderBy(desc(schema.sessions.lastSeenAt))
+  const rows = await db.select().from(schema.sessions).where(eq(schema.sessions.userId, u.id))
+    .orderBy(desc(schema.sessions.lastSeenAt)).limit(MAX_SESSIONS_PER_USER)
   return c.json({
     sessions: rows.map((s) => ({
       id: s.id.slice(0, 12),

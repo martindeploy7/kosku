@@ -76,7 +76,7 @@ export function TodayPanel() {
     const st = KIND_STYLE[kind]
     return (
       <li className="flex flex-wrap items-center gap-x-3 gap-y-2 py-3">
-        <button className="flex items-center gap-3 min-w-0 flex-1 text-left" onClick={() => navigate(`/tenants/${item.tenantId}`)}>
+        <button className="flex items-center gap-3 min-w-0 grow basis-[180px] text-left" onClick={() => navigate(`/tenants/${item.tenantId}`)}>
           <Avatar name={tenant?.name ?? '?'} color={tenant?.avatarColor} size="sm" />
           <span className="min-w-0">
             <span className="block font-semibold text-sm truncate">{tenant?.name ?? lookups.tenantName(item.tenantId)}</span>

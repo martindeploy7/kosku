@@ -1,5 +1,6 @@
-import { eq } from 'drizzle-orm'
+import { and, desc, eq } from 'drizzle-orm'
 import { PgBoss } from 'pg-boss'
+import { todayInTz } from '@shared/dates'
 import { db, schema } from '../db/client'
 import { env } from '../env'
 import { errMeta, log } from '../lib/log'
@@ -77,12 +78,24 @@ export async function startJobs() {
   log.info('Job terjadwal aktif', { timezone: env.APP_TIMEZONE, jobs: Object.keys(JOBS) })
 
   // Catch up right after boot: billing state must be current before anyone looks.
+  // Render Free sleeps and wakes many times a day, so skip jobs that already
+  // succeeded today — otherwise every wake reruns and floods the job log.
   setTimeout(() => {
-    void recordRun('recurring-expenses', JOBS['recurring-expenses'].run)
-      .then(() => recordRun('daily-billing', JOBS['daily-billing'].run))
-      .then(() => recordRun('daily-digest', JOBS['daily-digest'].run))
-      .catch(() => {})
+    void (async () => {
+      for (const name of ['recurring-expenses', 'daily-billing', 'daily-digest'] as const) {
+        if (await ranOkToday(name)) continue
+        await recordRun(name, JOBS[name].run).catch(() => {})
+      }
+    })()
   }, 5_000)
+}
+
+async function ranOkToday(name: string) {
+  const [last] = await db.select({ startedAt: schema.jobRuns.startedAt }).from(schema.jobRuns)
+    .where(and(eq(schema.jobRuns.name, name), eq(schema.jobRuns.status, 'ok')))
+    .orderBy(desc(schema.jobRuns.startedAt)).limit(1)
+  if (!last) return false
+  return todayInTz(env.APP_TIMEZONE, new Date(last.startedAt)) === todayInTz(env.APP_TIMEZONE)
 }
 
 export async function stopJobs() {

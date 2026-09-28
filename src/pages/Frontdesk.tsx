@@ -205,7 +205,7 @@ export default function Frontdesk() {
                   <Th>Kamar</Th>
                   <Th>Tanggal penagihan</Th>
                   <Th align="right">Sewa berjalan</Th>
-                  <Th align="right">Jatuh tempo</Th>
+                  <Th align="right">Tunggakan</Th>
                   <Th align="right">Penyelesaian</Th>
                   <Th align="center">Aksi</Th>
                 </tr>

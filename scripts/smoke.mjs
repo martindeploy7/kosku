@@ -77,7 +77,15 @@ r = await api('GET', '/api/bootstrap')
 check('bootstrap memuat data', r.status === 200 && r.json.properties.length >= 1 && r.json.rooms.length >= 1, r.json?.error)
 const boot = r.json
 const busyRoomIds = new Set(boot.rentals.filter((x) => ['booked', 'active'].includes(x.status)).map((x) => x.roomId))
-const freeRoom = boot.rooms.find((x) => !busyRoomIds.has(x.id))
+let freeRoom = boot.rooms.find((x) => !busyRoomIds.has(x.id))
+if (!freeRoom) {
+  // Repeated runs fill every room: add one so the test works on any database.
+  const created = await api('POST', '/api/rooms', {
+    propertyId: boot.properties[0].id, name: `Kamar Uji ${Date.now() % 100000}`,
+    price: { daily: 0, weekly: 0, monthly: 1500000, yearly: 0 }, schemes: { daily: false, weekly: false, monthly: true, yearly: false },
+  })
+  freeRoom = created.json?.[0]
+}
 check('ada kamar kosong untuk uji', Boolean(freeRoom))
 const property = boot.properties.find((p) => p.id === freeRoom.propertyId)
 
@@ -261,11 +269,15 @@ const S = { jar: staff.jar }
 
 /* ---------------------------------------------------------------- four-eyes: admin requests, superadmin decides */
 r = await api('GET', '/api/bootstrap', undefined, A)
-check('admin hanya melihat properti yang ditugaskan', r.status === 200 && r.json.properties.every((p) => p.id === property.id), r.json.properties?.map((p) => p.name))
+check('admin hanya melihat properti yang ditugaskan', r.status === 200 && r.json.properties.every((p) => p.id === property.id), { status: r.status, props: r.json.properties?.map((p) => p.name), err: r.json.error })
 const aBoot = r.json
 
 // Delete → request, nothing deleted yet
-const expense2 = aBoot.expenses.find((e) => e.propertyId === property.id)
+// Its own expense to delete, so the test doesn't depend on leftovers from earlier runs.
+const expense2 = (await api('POST', '/api/expenses', {
+  propertyId: property.id, roomId: null, category: 'Kebersihan', name: 'Uji hapus ' + Date.now(), date: today(),
+  items: [{ name: 'Sapu', amount: 25000 }],
+})).json
 r = await api('DELETE', `/api/expenses/${expense2.id}?reason=${encodeURIComponent('data ganda')}`, undefined, A)
 check('admin menghapus → jadi permintaan (202), belum terhapus', r.status === 202 && r.json.pendingApproval && r.json.request.reason === 'data ganda', r.json)
 const delReq = r.json.request
@@ -311,17 +323,17 @@ check('admin diberi tahu penolakan beserta alasannya', r.json.some((n) => n.type
 r = await api('GET', '/api/bootstrap', undefined, A)
 let prop2 = r.json.properties.find((p) => p.id === property.id)
 r = await api('PATCH', `/api/properties/${property.id}`, {
-  version: prop2.version, note: 'Catatan uji', paymentInfo: 'Transfer ke BCA 999 a.n. Orang Lain', approvalReason: 'rekening baru',
+  version: prop2.version, note: `Catatan uji ${Date.now()}`, paymentInfo: `Transfer ke BCA 999 a.n. Orang Lain (${Date.now()})`, approvalReason: 'rekening baru',
 }, A)
-check('ubah rekening oleh admin → menunggu; catatan langsung tersimpan', r.status === 202 && r.json.applied.note === 'Catatan uji' && r.json.applied.paymentInfo === prop2.paymentInfo, r.json)
+check('ubah rekening oleh admin → menunggu; catatan langsung tersimpan', r.status === 202 && r.json.applied.note.startsWith('Catatan uji') && r.json.applied.paymentInfo === prop2.paymentInfo, r.json)
 const bankReq = r.json.request
 r = await api('PATCH', `/api/properties/${property.id}`, { version: prop2.version, note: 'draf lama' }, A)
 check('simpan dari draf usang ditolak (tidak menimpa perubahan lain)', r.status === 409 && r.json.error.code === 'stale_version', r.json)
 // Meanwhile the superadmin edits the same field directly → the request is now stale.
 r = await api('GET', '/api/bootstrap')
 prop2 = r.json.properties.find((p) => p.id === property.id)
-r = await api('PATCH', `/api/properties/${property.id}`, { version: prop2.version, paymentInfo: 'Transfer ke BCA 123 a.n. Pemilik' })
-check('superadmin mengubah langsung (tanpa persetujuan)', r.status === 200 && r.json.paymentInfo === 'Transfer ke BCA 123 a.n. Pemilik', r.json)
+r = await api('PATCH', `/api/properties/${property.id}`, { version: prop2.version, paymentInfo: `Transfer ke BCA 123 a.n. Pemilik (${Date.now()})` })
+check('superadmin mengubah langsung (tanpa persetujuan)', r.status === 200 && r.json.paymentInfo.startsWith('Transfer ke BCA 123 a.n. Pemilik'), r.json)
 r = await api('POST', `/api/approvals/${bankReq.id}/approve`, {})
 check('permintaan yang sudah basi tidak diterapkan', r.status === 409 && r.json.error.code === 'approval_stale', r.json)
 r = await api('POST', `/api/approvals/${bankReq.id}/reject`, { note: 'Sudah diubah langsung' })
@@ -349,5 +361,101 @@ if (openInv) {
 }
 r = await api('GET', '/api/approvals?status=history', undefined, A)
 check('riwayat persetujuan terlihat oleh admin', Array.isArray(r.json) && r.json.length >= 3, r.json.length)
+
+/* ---------------------------------------------------------------- workspaces: one owner never sees another's data */
+const stamp = Date.now() % 1000000
+r = await api('POST', '/api/users', { username: `owner${stamp}`, name: 'Pemilik Kedua', role: 'superadmin' })
+check('superadmin membuat superadmin lain (pemilik terpisah)', r.status === 201 && r.json.separateWorkspace === true, r.json)
+const B = { jar: { cookie: '' } }
+await api('POST', '/api/auth/login', { username: `owner${stamp}`, password: r.json.temporaryPassword }, B)
+await api('POST', '/api/auth/change-password', { currentPassword: r.json.temporaryPassword, newPassword: NEW_PASS }, B)
+r = await api('GET', '/api/bootstrap', undefined, B)
+check('pemilik baru mulai kosong: tidak melihat properti, penyewa, tagihan pemilik lain',
+  r.status === 200 && r.json.properties.length === 0 && r.json.tenants.length === 0 && r.json.invoices.length === 0 && r.json.payments.length === 0,
+  { props: r.json.properties?.length, tenants: r.json.tenants?.length })
+check('pemilik baru hanya melihat akunnya sendiri', r.json.users.length === 1 && r.json.users[0].username === `owner${stamp}`, r.json.users?.map((u) => u.username))
+r = await api('GET', '/api/notifications', undefined, B)
+check('notifikasi pemilik lain tidak terlihat', Array.isArray(r.json) && r.json.every((n) => n.type === 'job_failed'), r.json.map?.((n) => n.type))
+r = await api('PATCH', `/api/properties/${property.id}`, { version: 1, note: 'coba bobol' }, B)
+check('pemilik lain tidak bisa mengubah properti ini', r.status === 403, r.json)
+r = await api('GET', `/api/whatsapp/${property.id}/status`, undefined, B)
+check('pemilik lain tidak bisa membuka WhatsApp properti ini', r.status === 403, r.json)
+r = await api('PATCH', `/api/tenants/${tenant.id}`, { version: 1, job: 'bobol' }, B)
+check('pemilik lain tidak bisa mengubah penyewa ini', r.status === 404, r.json)
+r = await api('GET', `/api/files?ownerType=tenant&ownerId=${tenant.id}`, undefined, B)
+check('pemilik lain tidak bisa melihat dokumen penyewa ini', r.status === 403, r.json)
+r = await api('GET', '/api/trash', undefined, B)
+check('tempat sampah pemilik lain tidak terlihat', Array.isArray(r.json) && r.json.length === 0, r.json.length)
+r = await api('GET', '/api/audit', undefined, B)
+check('log aktivitas hanya milik sendiri', Array.isArray(r.json) && r.json.every((e) => e.username === `owner${stamp}`), r.json.slice?.(0, 3).map((e) => e.username))
+r = await api('POST', `/api/approvals/${delReq.id}/approve`, {}, B)
+check('pemilik lain tidak bisa memproses persetujuan di sini', r.status === 404 || r.status === 409, r.json)
+r = await api('POST', `/api/rentals`, {
+  tenantId: tenant.id, roomId: freeRoom.id, startDate: addDays(today(), 60), endDate: null, rentType: 'monthly',
+  price: 1000000, billingDay: 1, paymentMode: 'later', sendContract: false,
+}, B)
+check('pemilik lain tidak bisa membuat sewa di kamar ini', r.status === 403, r.json)
+
+r = await api('POST', '/api/properties', {
+  name: `Kost Mawar ${stamp}`, phone: `0819${String(stamp).padStart(8, '0')}`,
+  address: { street: 'Jl. Mawar 1', postcode: '12345', province: 'DKI Jakarta', city: 'Jakarta', district: 'X', subdistrict: 'Y', lat: -6.2, lng: 106.8 },
+}, B)
+check('pemilik kedua membuat propertinya sendiri', r.status === 201, r.json)
+const propB = r.json
+r = await api('POST', '/api/properties', {
+  name: 'Kode Bentrok', phone: `0818${String(stamp).padStart(8, '0')}`, code: property.code,
+  address: { street: 'Jl. A', postcode: '12345', province: 'DKI Jakarta', city: 'Jakarta', district: 'X', subdistrict: 'Y', lat: -6.2, lng: 106.8 },
+}, B)
+check('kode faktur tidak boleh dipakai dua properti (nomor faktur unik)', r.status === 409, r.json)
+r = await api('POST', '/api/tenants', { name: 'Penyewa Milik B', contacts: [{ id: 'b1', name: 'B', email: '', phone: '081299990123' }] }, B)
+const tenantB = r.json
+r = await api('GET', '/api/bootstrap')
+check('pemilik pertama tidak melihat properti & penyewa pemilik kedua',
+  !r.json.properties.some((p) => p.id === propB.id) && !r.json.tenants.some((t) => t.id === tenantB.id) && !r.json.users.some((u) => u.username === `owner${stamp}`))
+r = await api('PATCH', `/api/properties/${propB.id}`, { version: propB.version, note: 'bobol' })
+check('pemilik pertama tidak bisa mengubah properti pemilik kedua', r.status === 403, r.json)
+r = await api('POST', '/api/users', { username: `admb${stamp}`, name: 'Admin B', role: 'admin', allProperties: true }, B)
+const adminB = r.json.user
+r = await api('POST', `/api/users/${adminB.id}/reset-password`, {})
+check('pemilik pertama tidak bisa mereset password akun milik pemilik kedua', r.status === 404, r.json)
+r = await api('POST', '/api/users', { username: `mix${stamp}`, name: 'Campur', role: 'admin', allProperties: false, propertyIds: [propB.id] })
+check('akses ke properti orang lain tidak bisa diberikan', r.status === 403, r.json)
+
+/* ---------------------------------------------------------------- developer: every feature, dummy data only */
+const { execSync } = await import('node:child_process')
+const devName = `dev${stamp}`
+const out = execSync(`npm run cli:dev -- create-developer ${devName}`, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+const devTemp = out.match(/Password sementara: (\S+)/)?.[1]
+check('akun developer dibuat lewat CLI beserta sandbox', Boolean(devTemp), out.slice(-300))
+const D = { jar: { cookie: '' } }
+await api('POST', '/api/auth/login', { username: devName, password: devTemp }, D)
+await api('POST', '/api/auth/change-password', { currentPassword: devTemp, newPassword: NEW_PASS }, D)
+r = await api('GET', '/api/bootstrap', undefined, D)
+const devBoot = r.json
+check('developer punya data dummy lengkap (properti, kamar, penyewa, tagihan)',
+  devBoot.properties.length === 2 && devBoot.rooms.length > 0 && devBoot.tenants.length > 0 && devBoot.invoices.length > 0, { p: devBoot.properties?.length })
+check('developer tidak melihat satu pun data asli', devBoot.me.sandbox === true &&
+  !devBoot.properties.some((p) => p.id === property.id || p.id === propB.id) && !devBoot.tenants.some((t) => t.id === tenant.id || t.id === tenantB.id))
+r = await api('GET', `/api/whatsapp/${devBoot.properties[0].id}/status`, undefined, D)
+check('WhatsApp sandbox selalu disimulasikan', r.json.driver === 'mock', r.json)
+r = await api('PATCH', `/api/properties/${property.id}`, { version: 1, note: 'dev' }, D)
+check('developer tidak bisa menyentuh properti asli', r.status === 403, r.json)
+r = await api('POST', '/api/users', { username: `sup${stamp}`, name: 'Pemilik Palsu', role: 'superadmin' }, D)
+check('developer tidak bisa membuat superadmin', r.status === 403, r.json)
+r = await api('POST', '/api/users', { username: `devadm${stamp}`, name: 'Admin Uji Dev', role: 'admin', allProperties: true }, D)
+check('developer bisa membuat akun uji di sandbox-nya', r.status === 201, r.json)
+r = await api('GET', '/api/jobs', undefined, D)
+check('developer punya akses fitur superadmin (log sistem)', r.status === 200, r.json)
+const devRoom = devBoot.rooms[0]
+r = await api('PATCH', `/api/rooms/${devRoom.id}`, { version: devRoom.version, price: { ...devRoom.price, monthly: devRoom.price.monthly + 1000 } }, D)
+check('developer mengubah harga langsung (tanpa persetujuan) di sandbox', r.status === 200, r.json)
+r = await api('POST', '/api/dev/reset-sandbox', {}, D)
+check('developer bisa mereset data dummy', r.status === 200 && r.json.properties === 2, r.json)
+r = await api('GET', '/api/bootstrap', undefined, D)
+check('setelah reset: data dummy baru, data asli tetap tak terlihat', r.json.properties.length === 2 && !r.json.properties.some((p) => devBoot.properties.some((o) => o.id === p.id)))
+r = await api('POST', '/api/dev/reset-sandbox', {})
+check('superadmin tidak bisa memakai reset sandbox', r.status === 403, r.json)
+r = await api('GET', '/api/bootstrap')
+check('data pemilik pertama utuh setelah semua uji isolasi', r.json.properties.some((p) => p.id === property.id) && r.json.tenants.some((t) => t.id === tenant.id))
 
 console.log(`\n${passed} pemeriksaan lulus.`)

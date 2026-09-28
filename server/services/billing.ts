@@ -183,7 +183,8 @@ export async function createRental(
   const tenant = await exec.query.tenants.findFirst({
     where: and(eq(schema.tenants.id, input.tenantId), isNull(schema.tenants.deletedAt)),
   })
-  if (!tenant) throw notFound('Penyewa')
+  // A lease joins a tenant and a room of the same owner, never across workspaces.
+  if (!tenant || tenant.ownerId !== property.ownerId) throw notFound('Penyewa')
 
   const existing = await exec.query.rentals.findFirst({
     where: and(
@@ -416,7 +417,7 @@ export async function recordPayment(
     meta: { amount: input.amount, method: input.method, kind: input.kind },
   }, exec)
 
-  const settings = await getAppSettings(exec)
+  const settings = await getAppSettings(property?.ownerId ?? actor.id, exec)
   const wantReceipt = opts.sendReceipt ?? settings.notifications.paymentReceipt
   if (wantReceipt && tenant?.phone && property && updatedInvoice) {
     const room = await exec.query.rooms.findFirst({ where: eq(schema.rooms.id, updatedInvoice.roomId) })

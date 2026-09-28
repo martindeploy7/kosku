@@ -61,6 +61,12 @@ function UserForm({ open, onClose, user, onCreated }: {
   const [allProperties, setAll] = React.useState(true)
   const [propertyIds, setPropertyIds] = React.useState<string[]>([])
   const [saving, setSaving] = React.useState(false)
+  const me = useStore((s) => s.me)
+  // Owners can start another (separate) owner; a developer's sandbox can't. Editing never changes ownership.
+  const ownerAccount = user?.role === 'superadmin' || user?.role === 'developer'
+  const roleChoices: Role[] = user
+    ? (ownerAccount ? [user.role] : ['admin', 'staff'])
+    : me?.role === 'superadmin' ? ['superadmin', 'admin', 'staff'] : ['admin', 'staff']
 
   React.useEffect(() => {
     if (!open) return
@@ -76,7 +82,9 @@ function UserForm({ open, onClose, user, onCreated }: {
     setSaving(true)
     const payload = { name, phone, role, allProperties: role === 'superadmin' ? true : allProperties, propertyIds }
     if (user) {
-      const ok = await run(() => actions.updateUser(user.id, payload), { success: 'Pengguna diperbarui' })
+      // An owner's role and access are fixed; only name and phone can change.
+      const ownerAccount = user.role === 'superadmin' || user.role === 'developer'
+      const ok = await run(() => actions.updateUser(user.id, ownerAccount ? { name, phone } : payload), { success: 'Pengguna diperbarui' })
       setSaving(false)
       if (ok) onClose()
     } else {
@@ -122,13 +130,20 @@ function UserForm({ open, onClose, user, onCreated }: {
         <div>
           <p className="text-xs font-semibold text-muted-foreground mb-2">Peran</p>
           <div className="grid sm:grid-cols-3 gap-3">
-            {(['superadmin', 'admin', 'staff'] as Role[]).map((r) => (
+            {roleChoices.map((r) => (
               <RadioCard key={r} checked={role === r} onChange={() => setRole(r)} title={ROLE_LABELS[r]} description={ROLE_DESCRIPTIONS[r]} />
             ))}
           </div>
+          {!user && role === 'superadmin' && (
+            <div className="mt-3 rounded-lg border border-warning/40 bg-warning-soft p-3 text-xs leading-relaxed">
+              Superadmin baru adalah <strong>pemilik terpisah</strong>: ia hanya melihat properti yang ia buat sendiri,
+              tidak dapat melihat properti, penyewa, maupun laporan Anda — dan Anda juga tidak dapat melihat miliknya
+              atau mengelola akunnya setelah dibuat.
+            </div>
+          )}
         </div>
 
-        {role !== 'superadmin' && (
+        {role !== 'superadmin' && role !== 'developer' && (
           <div className="space-y-3">
             <p className="text-xs font-semibold text-muted-foreground">Akses properti</p>
             <Checkbox checked={allProperties} onChange={setAll} label="Semua properti (termasuk yang ditambahkan nanti)" />
@@ -165,7 +180,7 @@ export default function Users() {
 
   const sorted = [...users].sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.name.localeCompare(b.name))
   const access = (u: User) =>
-    u.role === 'superadmin' || u.allProperties
+    u.role === 'superadmin' || u.role === 'developer' || u.allProperties
       ? 'Semua properti'
       : u.propertyIds.map((id) => properties.find((p) => p.id === id)?.name).filter(Boolean).join(', ') || '—'
 
@@ -207,8 +222,8 @@ export default function Users() {
                   </div>
                 </Td>
                 <Td>
-                  <Badge tone={u.role === 'superadmin' ? 'primary' : u.role === 'admin' ? 'info' : 'muted'}>
-                    {u.role === 'superadmin' && <ShieldCheck className="h-3 w-3" />} {ROLE_LABELS[u.role]}
+                  <Badge tone={u.role === 'superadmin' || u.role === 'developer' ? 'primary' : u.role === 'admin' ? 'info' : 'muted'}>
+                    {(u.role === 'superadmin' || u.role === 'developer') && <ShieldCheck className="h-3 w-3" />} {ROLE_LABELS[u.role]}
                   </Badge>
                 </Td>
                 <Td className="text-sm text-muted-foreground max-w-[220px] truncate">{access(u)}</Td>

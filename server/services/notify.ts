@@ -5,6 +5,7 @@ import { type Executor, db, iso, schema } from '../db/client'
 import type { Effects } from '../lib/effects'
 import { bumpRev } from '../lib/rev'
 import { sendPushToAudience, sendPushToUser } from './push'
+import { ownerOfProperty, ownerOfUser } from './workspace'
 
 export interface NotifyInput {
   type: string
@@ -16,6 +17,8 @@ export interface NotifyInput {
   audience?: 'all' | 'superadmin'
   /** Only this user sees it (and gets the push). */
   userId?: string | null
+  /** Workspace; derived from the property or the user when omitted. Null = system-wide notice. */
+  ownerId?: string | null
   /** Same key → created once. Scheduled alerts use it to stay idempotent. */
   dedupeKey?: string | null
   /** Also send a web push to subscribed devices. */
@@ -24,6 +27,9 @@ export interface NotifyInput {
 
 /** Insert a notification (deduplicated). Push goes out only after commit. */
 export async function notify(exec: Executor, input: NotifyInput, fx?: Effects) {
+  const ownerId = input.ownerId !== undefined
+    ? input.ownerId
+    : (await ownerOfProperty(input.propertyId, exec)) ?? (await ownerOfUser(input.userId, exec))
   const rows = await exec
     .insert(schema.notifications)
     .values({
@@ -35,6 +41,7 @@ export async function notify(exec: Executor, input: NotifyInput, fx?: Effects) {
       propertyId: input.propertyId ?? null,
       audience: input.audience ?? 'all',
       userId: input.userId ?? null,
+      ownerId,
       dedupeKey: input.dedupeKey ?? null,
     })
     .onConflictDoNothing({ target: schema.notifications.dedupeKey })
@@ -48,7 +55,7 @@ export async function notify(exec: Executor, input: NotifyInput, fx?: Effects) {
     const job = () =>
       created.userId
         ? sendPushToUser(created.userId, payload).then(() => undefined)
-        : sendPushToAudience({ propertyId: created.propertyId, audience: created.audience }, payload)
+        : sendPushToAudience({ propertyId: created.propertyId, audience: created.audience, ownerId: created.ownerId }, payload)
     if (fx) fx.push(job)
     else void job()
   }
@@ -58,12 +65,13 @@ export async function notify(exec: Executor, input: NotifyInput, fx?: Effects) {
 /** Visibility: property-scoped notices go to users with access to that property. */
 function visibleTo(user: SessionUser) {
   const n = schema.notifications
-  const audience = user.role === 'superadmin' ? dsql`true` : eq(n.audience, 'all')
-  const scope = user.allProperties
-    ? dsql`true`
-    : or(isNull(n.propertyId), user.propertyIds.length ? inArray(n.propertyId, user.propertyIds) : dsql`false`)
+  const owner = user.role === 'superadmin' || user.role === 'developer'
+  const audience = owner ? dsql`true` : eq(n.audience, 'all')
+  // Own workspace only; system-wide notices (no workspace) go to owners.
+  const workspace = owner ? or(eq(n.ownerId, user.ownerId), isNull(n.ownerId)) : eq(n.ownerId, user.ownerId)
+  const scope = or(isNull(n.propertyId), user.propertyIds.length ? inArray(n.propertyId, user.propertyIds) : dsql`false`)
   // Personal notices reach exactly their user, whatever the role.
-  return or(eq(n.userId, user.id), and(isNull(n.userId), audience, scope))
+  return or(eq(n.userId, user.id), and(isNull(n.userId), workspace, audience, scope))
 }
 
 export async function listNotifications(user: SessionUser, limit = 50): Promise<AppNotification[]> {

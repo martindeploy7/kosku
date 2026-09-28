@@ -58,22 +58,31 @@ export function requireUser(c: Ctx): SessionUser {
   return u
 }
 
+/** Superadmin-level: a workspace owner, or a developer inside their sandbox (same features, dummy data). */
+export const isSuper = (u: Pick<SessionUser, 'role'>) => u.role === 'superadmin' || u.role === 'developer'
+
 export function requireRole(c: Ctx, ...roles: Role[]): SessionUser {
   const u = requireUser(c)
-  if (!roles.includes(u.role)) throw forbidden()
+  // A developer can use everything a superadmin can — only ever on their own sandbox data.
+  if (!roles.includes(u.role) && !(u.role === 'developer' && roles.includes('superadmin'))) throw forbidden()
   return u
 }
 
-export const isSuper = (u: SessionUser) => u.role === 'superadmin'
-export const canDelete = (u: SessionUser) => u.role === 'superadmin' || u.role === 'admin'
-export const canSeeSensitiveDocs = (u: SessionUser) => u.role === 'superadmin' || u.role === 'admin'
+export const canDelete = (u: SessionUser) => isSuper(u) || u.role === 'admin'
+export const canSeeSensitiveDocs = (u: SessionUser) => isSuper(u) || u.role === 'admin'
 
-/** `null` means every property. */
-export const accessibleProperties = (u: SessionUser): string[] | null => (u.allProperties ? null : u.propertyIds)
+/** The properties the user may access — always an explicit list (their workspace only). */
+export const accessibleProperties = (u: SessionUser): string[] => u.propertyIds
 
+/** A property id belongs to this user's reach. Anything outside their workspace is invisible. */
 export function canAccessProperty(u: SessionUser, propertyId: string | null | undefined) {
   if (!propertyId) return true
-  return u.allProperties || u.propertyIds.includes(propertyId)
+  return u.propertyIds.includes(propertyId)
+}
+
+/** Records without a property (tenants, users, trash…) are checked by workspace instead. */
+export function assertSameWorkspace(u: SessionUser, ownerId: string | null | undefined) {
+  if (ownerId !== u.ownerId) throw forbidden('Data ini bukan milik Anda.')
 }
 
 export function assertPropertyAccess(u: SessionUser, propertyId: string | null | undefined) {

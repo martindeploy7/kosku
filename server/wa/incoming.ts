@@ -108,6 +108,8 @@ export async function tenantByPhone(phone: string, propertyId: string) {
       from tenants t
       left join rentals r on r.tenant_id = t.id and r.deleted_at is null and r.status in ('booked', 'active')
      where t.phone = ${phone} and t.deleted_at is null
+       -- Only the tenants of the owner whose WhatsApp received the message.
+       and t.owner_id = (select owner_id from properties where id = ${propertyId})
      order by (r.property_id = ${propertyId}) desc nulls last, (r.id is not null) desc, t.created_at desc
      limit 1`)
   const id = rows[0]?.id

@@ -1,4 +1,4 @@
-import { and, eq, lt, ne, or, sql as dsql } from 'drizzle-orm'
+import { and, eq, isNull, lt, ne, or, sql as dsql } from 'drizzle-orm'
 import type { Context } from 'hono'
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie'
 import type { Role } from '@shared/types'
@@ -13,9 +13,46 @@ export interface SessionUser {
   username: string
   name: string
   role: Role
+  /** As configured on the account: every property of the workspace (incl. ones added later). */
   allProperties: boolean
+  /**
+   * The properties this user may touch right now — always resolved, never "all":
+   * the workspace owner's live properties, narrowed to the account's own list if it has one.
+   */
   propertyIds: string[]
+  /** Workspace: the superadmin (or developer) whose data this account works on. */
+  ownerId: string
+  /** Developer sandbox: dummy data only, WhatsApp always simulated. */
+  sandbox: boolean
   mustChangePassword: boolean
+}
+
+type UserRow = typeof schema.users.$inferSelect
+
+/** Superadmins and developers run their own workspace; everyone else works inside their owner's. */
+export const workspaceOf = (u: Pick<UserRow, 'id' | 'role' | 'ownerId'>) =>
+  u.role === 'superadmin' || u.role === 'developer' ? u.id : (u.ownerId ?? u.id)
+
+/** Build the request identity: workspace + the exact properties it may access. */
+export async function toSessionUser(u: UserRow): Promise<SessionUser> {
+  const ownerId = workspaceOf(u)
+  const owned = await db
+    .select({ id: schema.properties.id })
+    .from(schema.properties)
+    .where(and(eq(schema.properties.ownerId, ownerId), isNull(schema.properties.deletedAt)))
+  const all = u.role === 'superadmin' || u.role === 'developer' || u.allProperties
+  const ownedIds = owned.map((p) => p.id)
+  return {
+    id: u.id,
+    username: u.username,
+    name: u.name,
+    role: u.role,
+    allProperties: all,
+    propertyIds: all ? ownedIds : u.propertyIds.filter((id) => ownedIds.includes(id)),
+    ownerId,
+    sandbox: u.role === 'developer',
+    mustChangePassword: u.mustChangePassword,
+  }
 }
 
 const idleMs = () => env.SESSION_IDLE_HOURS * 3600_000
@@ -68,19 +105,7 @@ export async function readSession(c: Context): Promise<{ sessionId: string; user
     await db.update(schema.sessions).set({ lastSeenAt: new Date(now).toISOString() }).where(eq(schema.sessions.id, id))
   }
 
-  const u = row.u
-  return {
-    sessionId: id,
-    user: {
-      id: u.id,
-      username: u.username,
-      name: u.name,
-      role: u.role,
-      allProperties: u.role === 'superadmin' || u.allProperties,
-      propertyIds: u.propertyIds,
-      mustChangePassword: u.mustChangePassword,
-    },
-  }
+  return { sessionId: id, user: await toSessionUser(row.u) }
 }
 
 export async function destroySession(c: Context, sessionId: string | null) {

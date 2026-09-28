@@ -267,11 +267,13 @@ export const getActiveRental = sharedActiveRental
  * ------------------------------------------------------------------ */
 
 export const useMe = () => useStore((s) => s.me)
-export const useIsSuper = () => useStore((s) => s.me?.role === 'superadmin')
-export const useCanDelete = () => useStore((s) => s.me?.role === 'superadmin' || s.me?.role === 'admin')
-export const useCanManage = () => useStore((s) => s.me?.role === 'superadmin' || s.me?.role === 'admin')
+/** Superadmin-level: an owner, or a developer inside their dummy-data sandbox. */
+const superRole = (r?: string) => r === 'superadmin' || r === 'developer'
+export const useIsSuper = () => useStore((s) => superRole(s.me?.role))
+export const useCanDelete = () => useStore((s) => superRole(s.me?.role) || s.me?.role === 'admin')
+export const useCanManage = () => useStore((s) => superRole(s.me?.role) || s.me?.role === 'admin')
 /** Deletes and money/legal edits by this user become requests for a superadmin. */
-export const useNeedsApproval = () => useStore((s) => Boolean(s.me) && s.me?.role !== 'superadmin')
+export const useNeedsApproval = () => useStore((s) => Boolean(s.me) && !superRole(s.me?.role))
 
 /** Pending requests touching one record (optionally one kind), for "menunggu persetujuan" markers. */
 export function usePendingFor(entityId: ID | null | undefined, kind?: ApprovalRequest['kind']) {

@@ -160,11 +160,8 @@ async function plan(tx: Tx, entity: TrashEntity, id: string, actor: SessionUser)
       const u = await tx.query.users.findFirst({ where: and(eq(schema.users.id, id), isNull(schema.users.deletedAt)) })
       if (!u) throw notFound('Pengguna')
       if (u.id === actor.id) throw badRequest('Anda tidak dapat menghapus akun Anda sendiri.')
-      if (u.role === 'superadmin') {
-        const supers = await tx.select({ c: dsql<number>`count(*)` }).from(schema.users)
-          .where(and(eq(schema.users.role, 'superadmin'), eq(schema.users.isActive, true), isNull(schema.users.deletedAt)))
-        if (Number(supers[0].c) <= 1) throw conflict('Tidak bisa menghapus superadmin terakhir.')
-      }
+      // Owners (superadmin/developer) hold a whole workspace; they're never removed through the trash.
+      if (u.role === 'superadmin' || u.role === 'developer') throw conflict('Akun pemilik tidak dapat dihapus.')
       return {
         label: `${u.name} (@${u.username})`,
         propertyId: null,
@@ -227,7 +224,7 @@ export async function softDelete(entity: TrashEntity, id: string, actor: Session
       if (c) counts[LABELS[key]] = (counts[LABELS[key]] ?? 0) + c
     }
     await tx.insert(schema.trash).values({
-      id: batch, entityType: entity, entityId: id, label: p.label, propertyId: p.propertyId, counts,
+      id: batch, entityType: entity, entityId: id, label: p.label, propertyId: p.propertyId, ownerId: actor.ownerId, counts,
       deletedBy: actor.id, deletedByName: actor.name,
     })
     await p.after?.(tx, fx)
@@ -246,12 +243,13 @@ export async function softDelete(entity: TrashEntity, id: string, actor: Session
 
 /** Restore a whole delete batch. Superadmin only. */
 export async function restore(batch: string, actor: SessionUser, ip: string) {
-  if (actor.role !== 'superadmin') throw forbidden('Hanya superadmin yang dapat memulihkan data.')
+  if (actor.role !== 'superadmin' && actor.role !== 'developer') throw forbidden('Hanya superadmin yang dapat memulihkan data.')
   const fx = new Effects()
   try {
     const item = await db.transaction(async (tx) => {
       const item = await tx.query.trash.findFirst({ where: and(eq(schema.trash.id, batch), isNull(schema.trash.restoredAt)) })
-      if (!item) throw notFound('Item tempat sampah')
+      // Another owner's trash doesn't exist for this user.
+      if (!item || item.ownerId !== actor.ownerId) throw notFound('Item tempat sampah')
 
       // A child can't come back into a parent that is still in the trash.
       const parentCheck: Partial<Record<TrashEntity, () => Promise<string | null>>> = {
@@ -321,11 +319,11 @@ export async function restore(batch: string, actor: SessionUser, ip: string) {
   }
 }
 
-export async function listTrash(limit = 200): Promise<TrashItem[]> {
+export async function listTrash(ownerId: string, limit = 200): Promise<TrashItem[]> {
   const rows = await db
     .select()
     .from(schema.trash)
-    .where(isNull(schema.trash.restoredAt))
+    .where(and(isNull(schema.trash.restoredAt), eq(schema.trash.ownerId, ownerId)))
     .orderBy(desc(schema.trash.deletedAt))
     .limit(limit)
   return rows.map((r) => ({

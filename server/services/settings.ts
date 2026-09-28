@@ -3,7 +3,8 @@ import { defaultNotificationSettings } from '@shared/constants'
 import type { AppSettings } from '@shared/types'
 import { type Executor, db, schema } from '../db/client'
 
-const KEY = 'app'
+/** One settings row per workspace (owner). */
+const keyOf = (ownerId: string) => `app:${ownerId}`
 
 const defaults = (): AppSettings => ({
   notifications: defaultNotificationSettings(),
@@ -28,15 +29,15 @@ function merge(stored: Partial<AppSettings> | undefined): AppSettings {
   }
 }
 
-export async function getAppSettings(exec: Executor = db): Promise<AppSettings> {
-  const rows = await exec.select().from(schema.settings).where(eq(schema.settings.key, KEY)).limit(1)
+export async function getAppSettings(ownerId: string, exec: Executor = db): Promise<AppSettings> {
+  const rows = await exec.select().from(schema.settings).where(eq(schema.settings.key, keyOf(ownerId))).limit(1)
   return merge(rows[0]?.value as Partial<AppSettings> | undefined)
 }
 
-export async function saveAppSettings(next: AppSettings, exec: Executor = db) {
+export async function saveAppSettings(ownerId: string, next: AppSettings, exec: Executor = db) {
   await exec
     .insert(schema.settings)
-    .values({ key: KEY, value: next })
+    .values({ key: keyOf(ownerId), value: next })
     .onConflictDoUpdate({ target: schema.settings.key, set: { value: next, updatedAt: new Date().toISOString() } })
   return next
 }

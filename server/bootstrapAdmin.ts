@@ -10,19 +10,23 @@ import { log } from './lib/log'
  * login. No email is involved anywhere.
  */
 export async function ensureInitialSuperadmin() {
-  const count = await db.select({ c: dsql<number>`count(*)` }).from(schema.users).where(isNull(schema.users.deletedAt))
+  // Only real owners count: a developer account alone must not block creating the first superadmin.
+  const count = await db.select({ c: dsql<number>`count(*)` }).from(schema.users)
+    .where(and(isNull(schema.users.deletedAt), dsql`${schema.users.role} <> 'developer'`))
   if (Number(count[0].c) > 0) return
 
   const username = (process.env.INITIAL_ADMIN_USERNAME || 'admin').toLowerCase()
   const temp = temporaryPassword()
-  await db.insert(schema.users).values({
+  const [created] = await db.insert(schema.users).values({
     username,
     name: process.env.INITIAL_ADMIN_NAME || 'Superadmin',
     role: 'superadmin',
     allProperties: true,
     passwordHash: await hashPassword(temp),
     mustChangePassword: true,
-  })
+  }).returning()
+  // A superadmin owns their own workspace.
+  await db.update(schema.users).set({ ownerId: created.id }).where(eq(schema.users.id, created.id))
   const bar = '='.repeat(64)
   console.log(`\n${bar}\n  AKUN SUPERADMIN PERTAMA DIBUAT\n  Username : ${username}\n  Password : ${temp}\n  Password ini sementara — Anda wajib menggantinya saat login pertama.\n${bar}\n`)
   log.info('Superadmin awal dibuat', { username })

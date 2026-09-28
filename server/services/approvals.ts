@@ -31,7 +31,8 @@ import { previewDelete, softDelete, type TrashEntity } from './trash'
  * apply at once, so daily work isn't blocked.
  * ------------------------------------------------------------------------- */
 
-export const needsApproval = (u: SessionUser) => u.role !== 'superadmin'
+/** Owners (and a developer in their sandbox) decide; everyone else asks. */
+export const needsApproval = (u: SessionUser) => u.role !== 'superadmin' && u.role !== 'developer'
 
 type PropertyRow = typeof schema.properties.$inferSelect
 type RoomRow = typeof schema.rooms.$inferSelect
@@ -127,7 +128,7 @@ function describeItems(items: InvoiceItem[] | null | undefined) {
 
 function describe(kind: ApprovalKind, label: string, before: Record<string, unknown>, payload: Record<string, unknown>): ApprovalChange[] {
   if (kind === 'delete') {
-    return [{ field: 'delete', label: 'Tindakan', before: label, after: 'Dihapus (dapat dipulihkan dari Tempat Sampah)' }]
+    return [{ field: 'delete', label: 'Status data', before: 'Masih ada', after: 'Dihapus (dapat dipulihkan dari Tempat Sampah)' }]
   }
   if (kind === 'invoice.void') {
     return [{ field: 'status', label: 'Status faktur', before: 'Aktif', after: 'Dibatalkan' }]
@@ -238,9 +239,10 @@ export function toApproval(r: Row): ApprovalRequest {
 
 function visibleTo(u: SessionUser): SQL | undefined {
   const t = schema.approvalRequests
-  if (u.allProperties) return undefined
+  // Own workspace only, always.
+  if (u.allProperties) return eq(t.ownerId, u.ownerId)
   const mine = eq(t.requestedBy, u.id)
-  return u.propertyIds.length ? or(mine, inArray(t.propertyId, u.propertyIds)) : mine
+  return and(eq(t.ownerId, u.ownerId), u.propertyIds.length ? or(mine, inArray(t.propertyId, u.propertyIds)) : mine)
 }
 
 export async function listApprovals(u: SessionUser, opts: { status: 'pending' | 'history'; limit?: number }) {
@@ -282,7 +284,7 @@ export async function requestApproval(exec: Executor, u: SessionUser, ip: string
     )
   }
   const [row] = await exec.insert(t).values({
-    kind: input.kind, entityType: input.entityType, entityId: input.entityId, propertyId: input.propertyId,
+    kind: input.kind, entityType: input.entityType, entityId: input.entityId, propertyId: input.propertyId, ownerId: u.ownerId,
     label: input.label, payload: input.payload ?? {}, before: input.before ?? {}, reason: (input.reason ?? '').trim().slice(0, 500),
     requestedBy: u.id, requestedByName: u.name,
   }).returning()
@@ -292,6 +294,7 @@ export async function requestApproval(exec: Executor, u: SessionUser, ip: string
   }, exec as Tx)
   await notify(exec, {
     type: 'approval_requested', severity: 'warning', audience: 'superadmin', propertyId: input.propertyId,
+    ownerId: u.ownerId,
     title: `Perlu persetujuan: ${input.label}`,
     body: `Diminta oleh ${u.name}${row.reason ? ` — "${row.reason}"` : ''}`,
     link: `/approvals?id=${row.id}`, dedupeKey: `approval:${row.id}`, push: true,
@@ -503,11 +506,11 @@ function assertUnchanged(current: Record<string, unknown>, before: Record<string
   }
 }
 
-async function loadPending(tx: Tx, id: string) {
+async function loadPending(tx: Tx, id: string, ownerId: string) {
   const rows = await tx.execute<{ id: string }>(dsql`select id from approval_requests where id = ${id} for update`)
   if (!rows[0]) throw notFound('Permintaan')
   const req = await tx.query.approvalRequests.findFirst({ where: eq(schema.approvalRequests.id, id) })
-  if (!req) throw notFound('Permintaan')
+  if (!req || req.ownerId !== ownerId) throw notFound('Permintaan')
   if (req.status !== 'pending') throw conflict('Permintaan ini sudah diproses.')
   return req
 }
@@ -522,12 +525,12 @@ const entityLink = (r: Row) => {
 }
 
 export async function approveRequest(actor: SessionUser, ip: string, id: string, note?: string) {
-  if (actor.role !== 'superadmin') throw forbidden('Hanya superadmin yang dapat menyetujui.')
+  if (needsApproval(actor)) throw forbidden('Hanya superadmin yang dapat menyetujui.')
   const fx = new Effects()
   let deleteAfter: { entity: TrashEntity; id: string } | null = null
 
   const req = await db.transaction(async (tx) => {
-    const r = await loadPending(tx, id)
+    const r = await loadPending(tx, id, actor.ownerId)
     if (r.propertyId && !actor.allProperties && !actor.propertyIds.includes(r.propertyId)) throw forbidden('Anda tidak memiliki akses ke properti ini.')
     const suffix = ` — diminta oleh ${r.requestedByName}, disetujui ${actor.name}`
 
@@ -603,11 +606,11 @@ export async function approveRequest(actor: SessionUser, ip: string, id: string,
 }
 
 export async function rejectRequest(actor: SessionUser, ip: string, id: string, note: string) {
-  if (actor.role !== 'superadmin') throw forbidden('Hanya superadmin yang dapat menolak.')
+  if (needsApproval(actor)) throw forbidden('Hanya superadmin yang dapat menolak.')
   if (!note.trim()) throw badRequest('Tulis alasan penolakan agar admin tahu apa yang perlu diperbaiki.')
   const fx = new Effects()
   const row = await db.transaction(async (tx) => {
-    const r = await loadPending(tx, id)
+    const r = await loadPending(tx, id, actor.ownerId)
     const [done] = await tx.update(schema.approvalRequests)
       .set({ status: 'rejected', reviewedBy: actor.id, reviewedByName: actor.name, reviewNote: note.trim().slice(0, 1000), reviewedAt: new Date().toISOString() })
       .where(eq(schema.approvalRequests.id, id)).returning()
@@ -628,7 +631,7 @@ export async function rejectRequest(actor: SessionUser, ip: string, id: string, 
 
 export async function cancelRequest(u: SessionUser, ip: string, id: string) {
   const row = await db.transaction(async (tx) => {
-    const r = await loadPending(tx, id)
+    const r = await loadPending(tx, id, u.ownerId)
     if (r.requestedBy !== u.id) throw forbidden('Hanya pembuat permintaan yang dapat membatalkannya.')
     const [done] = await tx.update(schema.approvalRequests)
       .set({ status: 'canceled', reviewedAt: new Date().toISOString() })

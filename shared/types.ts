@@ -3,7 +3,8 @@
 
 export type ID = string
 
-export type Role = 'superadmin' | 'admin' | 'staff'
+/** developer: superadmin features inside an isolated sandbox with dummy data (for maintenance). */
+export type Role = 'superadmin' | 'admin' | 'staff' | 'developer'
 export type RentType = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'custom'
 export type RoomCondition = 'bersih' | 'kotor' | 'rusak'
 
@@ -449,7 +450,12 @@ export interface Me {
   name: string
   role: Role
   allProperties: boolean
+  /** Properties this account can access (resolved server-side, own workspace only). */
   propertyIds: ID[]
+  /** Workspace owner (the superadmin whose data this is). */
+  ownerId: ID
+  /** Developer sandbox: dummy data, WhatsApp simulated. */
+  sandbox: boolean
   mustChangePassword: boolean
 }
 

@@ -25,11 +25,13 @@ export const publicRoutes = new Hono<AppEnv>()
 /* ================================================================== access */
 
 /** The property a file belongs to, for access checks (null = not property-scoped). */
-async function ownerProperties(ownerType: string, ownerId: string): Promise<string[] | null> {
+async function ownerProperties(u: SessionUser, ownerType: string, ownerId: string): Promise<string[] | null> {
   switch (ownerType) {
     case 'tenant': {
       const t = await db.query.tenants.findFirst({ where: eq(schema.tenants.id, ownerId) })
       if (!t) throw notFound('Penyewa')
+      // A tenant without any property yet still belongs to exactly one workspace.
+      if (t.ownerId !== u.ownerId) return []
       const rentals = await db.select({ p: schema.rentals.propertyId }).from(schema.rentals).where(eq(schema.rentals.tenantId, ownerId))
       const ids = [...new Set([...rentals.map((r) => r.p), ...(t.waitlistPropertyId ? [t.waitlistPropertyId] : [])])]
       return ids.length ? ids : null
@@ -58,7 +60,7 @@ async function ownerProperties(ownerType: string, ownerId: string): Promise<stri
 }
 
 async function assertOwnerAccess(u: SessionUser, ownerType: string, ownerId: string) {
-  const props = await ownerProperties(ownerType, ownerId)
+  const props = await ownerProperties(u, ownerType, ownerId)
   if (props === null) return
   if (!props.length || !props.some((p) => canAccessProperty(u, p))) throw forbidden('Anda tidak memiliki akses ke berkas ini.')
 }

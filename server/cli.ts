@@ -1,6 +1,8 @@
 /* Operator commands, run on the server:
  *   node dist-server/cli.js reset-password <username>
  *   node dist-server/cli.js create-superadmin <username> [nama]
+ *   node dist-server/cli.js create-developer <username> [nama]   (sandbox data dummy)
+ *   node dist-server/cli.js reset-sandbox <username-developer>
  *   node dist-server/cli.js unlock <username>
  *   node dist-server/cli.js seed-demo [--force]
  *   node dist-server/cli.js run-daily
@@ -48,11 +50,38 @@ async function main() {
       })
       if (exists) throw new Error(`Username "${username}" sudah dipakai. Gunakan reset-password.`)
       const temp = temporaryPassword()
-      await db.insert(schema.users).values({
+      const [created] = await db.insert(schema.users).values({
         username: username.toLowerCase(), name: nameParts.join(' ') || username, role: 'superadmin',
         allProperties: true, passwordHash: await hashPassword(temp), mustChangePassword: true,
-      })
-      box([`Superadmin @${username.toLowerCase()} dibuat.`, `Password sementara: ${temp}`])
+      }).returning()
+      // Each superadmin owns a separate workspace: they see only the properties they create.
+      await db.update(schema.users).set({ ownerId: created.id }).where(eq(schema.users.id, created.id))
+      box([`Superadmin @${username.toLowerCase()} dibuat (workspace terpisah).`, `Password sementara: ${temp}`])
+      break
+    }
+
+    case 'create-developer': {
+      const [username, ...nameParts] = args
+      if (!username) throw new Error('Pakai: create-developer <username> [nama]')
+      await runMigrations()
+      const { createDeveloper } = await import('./sandbox')
+      const r = await createDeveloper(username, nameParts.join(' ') || 'Developer')
+      box([
+        `Developer @${r.user.username} dibuat dengan sandbox data dummy.`,
+        `Password sementara: ${r.temp}`,
+        'Akun ini memakai semua fitur, tetapi tidak dapat melihat data properti asli mana pun.',
+      ])
+      break
+    }
+
+    case 'reset-sandbox': {
+      const username = args[0]
+      if (!username) throw new Error('Pakai: reset-sandbox <username-developer>')
+      await runMigrations()
+      const dev = await db.query.users.findFirst({ where: dsql`lower(${schema.users.username}) = ${username.toLowerCase()}` })
+      if (!dev) throw new Error('Developer tidak ditemukan.')
+      const { resetSandbox } = await import('./sandbox')
+      console.log(await resetSandbox(dev.id))
       break
     }
 

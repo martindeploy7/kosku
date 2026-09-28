@@ -32,6 +32,7 @@ const CONSTRAINT_MESSAGES: Record<string, string> = {
   rentals_booked_deadline_ck: 'Pemesanan dengan DP wajib memiliki batas pelunasan.',
   properties_phone_uq: 'Nomor WhatsApp ini sudah dipakai properti lain. Satu properti hanya boleh memakai satu nomor, dan satu nomor hanya untuk satu properti.',
   users_username_uq: 'Username sudah dipakai. Pilih username lain.',
+  properties_code_uq: 'Kode faktur ini sudah dipakai properti lain. Pilih kode lain.',
   invoices_rental_period_uq: 'Tagihan untuk periode ini sudah ada.',
   payments_amount_ck: 'Jumlah pembayaran tidak boleh nol.',
 }

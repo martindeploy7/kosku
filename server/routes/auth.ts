@@ -3,8 +3,9 @@ import { Hono } from 'hono'
 import { type AppEnv, requireUser } from '../auth/context'
 import { burnVerifyTime, hashPassword, passwordProblem, verifyPassword } from '../auth/password'
 import { clear, hit } from '../auth/rateLimit'
-import { createSession, destroySession, revokeUserSessions } from '../auth/session'
+import { createSession, destroySession, revokeUserSessions, toSessionUser } from '../auth/session'
 import { db, iso, schema } from '../db/client'
+import { env } from '../env'
 import { badRequest, HttpError, unauthorized } from '../lib/errors'
 import { writeAudit } from '../services/audit'
 import { jsonBody, parse, z } from './util'
@@ -25,7 +26,7 @@ authRoutes.post('/login', async (c) => {
   const ip = c.get('ip')
   const username = body.username.toLowerCase()
 
-  const byIp = hit(`login:ip:${ip}`, 20, 15 * 60_000)
+  const byIp = hit(`login:ip:${ip}`, env.LOGIN_IP_LIMIT, 15 * 60_000)
   const byUser = hit(`login:user:${username}`, 10, 15 * 60_000)
   if (!byIp.ok || !byUser.ok) {
     c.header('Retry-After', String(Math.max(byIp.retryAfterSec, byUser.retryAfterSec)))
@@ -64,13 +65,7 @@ authRoutes.post('/login', async (c) => {
   await writeAudit({ id: user.id, username: user.username }, ip, {
     action: 'auth.login', entityType: 'user', entityId: user.id, summary: 'Masuk',
   })
-  return c.json({
-    user: {
-      id: user.id, username: user.username, name: user.name, role: user.role,
-      allProperties: user.role === 'superadmin' || user.allProperties, propertyIds: user.propertyIds,
-      mustChangePassword: user.mustChangePassword,
-    },
-  })
+  return c.json({ user: await toSessionUser(user) })
 })
 
 authRoutes.post('/logout', async (c) => {

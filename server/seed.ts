@@ -1,9 +1,9 @@
-import { and, asc, eq, isNull, sql as dsql } from 'drizzle-orm'
+import { and, asc, eq, inArray, isNull, sql as dsql } from 'drizzle-orm'
 import {
   DEFAULT_HOUSE_RULES, DEFAULT_WA_TEMPLATES, defaultAgreement, defaultBookingPolicy, defaultInvoicePdf,
 } from '@shared/constants'
 import { addDays, addMonths } from '@shared/dates'
-import { db, schema } from './db/client'
+import { type Executor, db, schema } from './db/client'
 import { Effects } from './lib/effects'
 import { appToday, createRental, recordPayment, runDailyBilling, type Actor } from './services/billing'
 
@@ -12,23 +12,50 @@ import { appToday, createRental, recordPayment, runDailyBilling, type Actor } fr
 
 const COLORS = ['bg-indigo-500', 'bg-emerald-500', 'bg-amber-500', 'bg-rose-500', 'bg-sky-500', 'bg-violet-500', 'bg-teal-500']
 
-export async function seedDemo(opts: { force?: boolean } = {}) {
+/** A code nobody uses yet (codes prefix invoice numbers, across every workspace). */
+async function freeCode(exec: Executor, base: string) {
+  const taken = new Set((await exec.select({ c: schema.properties.code }).from(schema.properties)).map((r) => r.c.toUpperCase()))
+  if (!taken.has(base)) return base
+  for (let n = 2; ; n++) if (!taken.has(`${base}${n}`)) return `${base}${n}`
+}
+
+/** A WhatsApp number no live property uses. Sandbox numbers are fake (62899…) and never messaged. */
+async function freePhone(exec: Executor, preferred: string, sandbox: boolean) {
+  const taken = new Set((await exec.select({ p: schema.properties.phone }).from(schema.properties).where(isNull(schema.properties.deletedAt))).map((r) => r.p))
+  if (!sandbox && !taken.has(preferred)) return preferred
+  for (;;) {
+    const n = `62899${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`
+    if (!taken.has(n)) return n
+  }
+}
+
+/**
+ * Fill one workspace with realistic dummy data. `ownerId` defaults to the first
+ * superadmin (development). For a developer it builds their sandbox.
+ */
+export async function seedDemo(opts: { force?: boolean; ownerId?: string } = {}) {
   // One transaction: a failed seed leaves nothing half-created behind.
   const fx = new Effects()
   const result = await db.transaction(async (tx) => {
-  const existing = await tx.select({ c: dsql<number>`count(*)` }).from(schema.properties).where(isNull(schema.properties.deletedAt))
+  const admin = opts.ownerId
+    ? await tx.query.users.findFirst({ where: eq(schema.users.id, opts.ownerId) })
+    : await tx.query.users.findFirst({ where: eq(schema.users.role, 'superadmin'), orderBy: asc(schema.users.createdAt) })
+  if (!admin) throw new Error('Buat superadmin terlebih dahulu.')
+  const sandbox = admin.role === 'developer'
+  const existing = await tx.select({ c: dsql<number>`count(*)` }).from(schema.properties)
+    .where(and(isNull(schema.properties.deletedAt), eq(schema.properties.ownerId, admin.id)))
   if (Number(existing[0].c) > 0 && !opts.force) {
     return { skipped: 'Sudah ada properti. Gunakan --force untuk tetap menambahkan data demo.' }
   }
-  const admin = await tx.query.users.findFirst({ where: eq(schema.users.role, 'superadmin'), orderBy: asc(schema.users.createdAt) })
-  if (!admin) throw new Error('Buat superadmin terlebih dahulu.')
   const actor: Actor = { id: admin.id, username: admin.username, name: admin.name }
   const today = appToday()
-  const suffix = opts.force ? String(Date.now()).slice(-4) : ''
 
   const mkProperty = async (name: string, code: string, phone: string, address: typeof schema.properties.$inferInsert.address) => {
     const [p] = await tx.insert(schema.properties).values({
-      name, code, phone, note: '', address,
+      name: sandbox ? `${name} (Demo)` : name,
+      code: await freeCode(tx, sandbox ? `D${code}` : code),
+      phone: await freePhone(tx, phone, sandbox),
+      ownerId: admin.id, sandbox, note: sandbox ? 'Data dummy untuk pengembangan — bukan data penyewa asli.' : '', address,
       paymentMethods: { cash: true, transfer: true },
       paymentInfo: 'Transfer ke BCA 123-456-7890 a.n. Pengelola Kos, atau tunai ke pengelola.',
       lateFee: { enabled: true, type: 'fixed', value: 25000, graceDays: 3, frequency: 'once' },
@@ -41,11 +68,11 @@ export async function seedDemo(opts: { force?: boolean } = {}) {
     return p
   }
 
-  const melati = await mkProperty('Kost Melati Asri', 'MLT', `62812345678${suffix ? suffix.slice(-2) : '90'}`, {
+  const melati = await mkProperty('Kost Melati Asri', 'MLT', '6281234567890', {
     street: 'Jl. Kenanga No. 12, RT 03/RW 05', postcode: '40135', province: 'Jawa Barat', city: 'Kota Bandung',
     district: 'Coblong', subdistrict: 'Dago', lat: -6.8915, lng: 107.6107,
   })
-  const cempaka = await mkProperty('Kost Cempaka Residence', 'CMP', `62813987654${suffix ? suffix.slice(-2) : '32'}`, {
+  const cempaka = await mkProperty('Kost Cempaka Residence', 'CMP', '6281398765432', {
     street: 'Jl. Margonda Raya No. 88', postcode: '16424', province: 'Jawa Barat', city: 'Kota Depok',
     district: 'Beji', subdistrict: 'Kemiri Muka', lat: -6.3688, lng: 106.8316,
   })
@@ -83,7 +110,7 @@ export async function seedDemo(opts: { force?: boolean } = {}) {
     name: p.name, idNumber: p.idNumber, gender: p.gender, dob: p.dob || null, job: p.job, vehiclePlate: p.plate,
     maritalStatus: 'single', avatarColor: COLORS[i % COLORS.length], phone: p.phone,
     contacts: [{ id: `ct${i}`, name: p.name, email: '', phone: p.phone }],
-    isWaitlist: i >= 6, waitlistPropertyId: i >= 6 ? melati.id : null,
+    isWaitlist: i >= 6, waitlistPropertyId: i >= 6 ? melati.id : null, ownerId: admin.id,
     checkInNote: i < 5 ? 'Kunci 2 buah, kondisi kamar baik' : '',
   }))).returning()
   const t = (i: number) => tenants[i]
@@ -117,8 +144,11 @@ export async function seedDemo(opts: { force?: boolean } = {}) {
   await runDailyBilling(tx, fx, today)
 
   // Pay history: everything paid on time except Andi's latest invoice (arrears) and current-month ones for Rina.
-  const invoices = await tx.select().from(schema.invoices).where(isNull(schema.invoices.deletedAt)).orderBy(asc(schema.invoices.dueDate))
-  const rentals = await tx.select().from(schema.rentals)
+  // Only this seed's properties — never touch another workspace's books.
+  const seeded = [melati.id, cempaka.id]
+  const invoices = await tx.select().from(schema.invoices)
+    .where(and(isNull(schema.invoices.deletedAt), inArray(schema.invoices.propertyId, seeded))).orderBy(asc(schema.invoices.dueDate))
+  const rentals = await tx.select().from(schema.rentals).where(inArray(schema.rentals.propertyId, seeded))
   // Most pay on the due date; every third invoice a couple of days late, for the settlement report.
   const payDate = (inv: typeof invoices[number]) => {
     const d = addDays(inv.dueDate, inv.number.endsWith('3') ? 2 : 0)
@@ -147,11 +177,15 @@ export async function seedDemo(opts: { force?: boolean } = {}) {
   ]
   await tx.insert(schema.expenses).values(expenseRows.map((e) => ({
     propertyId: e.p, roomId: null, category: e.cat, name: e.name, date: addDays(addMonths(today, -e.m), -2),
-    items: [{ name: e.name, amount: e.amount }], total: e.amount, note: '', recurring: e.cat === 'Internet', createdBy: admin.id,
+    items: [{ name: e.name, amount: e.amount }], total: e.amount, note: '', createdBy: admin.id,
+    // A recurring cost must say how often it repeats (database constraint).
+    recurring: e.cat === 'Internet', recurrence: e.cat === 'Internet' ? ('monthly' as const) : null,
   })))
 
   // Demo tenants have made-up numbers: keep the demo from queueing WhatsApp messages to them.
-  await tx.delete(schema.waMessages).where(and(eq(schema.waMessages.direction, 'out'), eq(schema.waMessages.status, 'queued')))
+  await tx.delete(schema.waMessages).where(and(
+    eq(schema.waMessages.direction, 'out'), eq(schema.waMessages.status, 'queued'), inArray(schema.waMessages.propertyId, seeded),
+  ))
   return { properties: 2, rooms: rooms.length, tenants: tenants.length, invoices: invoices.length }
   })
   await fx.run()

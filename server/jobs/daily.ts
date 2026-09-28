@@ -190,13 +190,33 @@ export async function jobDailyDigest(asOf = appToday()) {
 /* ------------------------------------------------------------------ WhatsApp reminders to tenants */
 
 export async function jobTenantReminders(asOf = appToday(), opts: { force?: boolean } = {}) {
-  const settings = await getAppSettings()
-  const cfg = settings.notifications
   const hour = Number(new Intl.DateTimeFormat('en-GB', { timeZone: env.APP_TIMEZONE, hour: '2-digit', hourCycle: 'h23' }).format(new Date()))
-  // Send at the configured hour or later (catch-up), never late at night.
-  if (!opts.force && (hour < cfg.sendHour || hour > 21)) return { skipped: `menunggu jam ${cfg.sendHour}:00`, queued: 0 }
+  const all = await loadLive()
+  let queued = 0
+  const skipped: string[] = []
+  // Each owner has their own reminder settings; apply them to that owner's properties only.
+  for (const ownerId of new Set(all.properties.map((p) => p.ownerId))) {
+    const cfg = (await getAppSettings(ownerId)).notifications
+    // Send at the configured hour or later (catch-up), never late at night.
+    if (!opts.force && (hour < cfg.sendHour || hour > 21)) {
+      skipped.push(`menunggu jam ${cfg.sendHour}:00`)
+      continue
+    }
+    const mine = new Set(all.properties.filter((p) => p.ownerId === ownerId).map((p) => p.id))
+    queued += await remindersFor({
+      ...all,
+      invoices: all.invoices.filter((i) => mine.has(i.propertyId)),
+      rentals: all.rentals.filter((r) => mine.has(r.propertyId)),
+    }, cfg, asOf)
+  }
+  return skipped.length && !queued ? { skipped: skipped.join(', '), queued } : { queued }
+}
 
-  const data = await loadLive()
+async function remindersFor(
+  data: Awaited<ReturnType<typeof loadLive>>,
+  cfg: Awaited<ReturnType<typeof getAppSettings>>['notifications'],
+  asOf: string,
+) {
   const propById = new Map(data.properties.map((p) => [p.id, p]))
   const tenantById = new Map(data.tenants.map((t) => [t.id, t]))
   const roomById = new Map(data.rooms.map((r) => [r.id, r]))
@@ -262,5 +282,5 @@ export async function jobTenantReminders(asOf = appToday(), opts: { force?: bool
   }
 
   await fx.run()
-  return { queued }
+  return queued
 }

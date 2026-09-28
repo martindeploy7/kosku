@@ -62,6 +62,7 @@ export const ROLE_LABELS = {
   superadmin: 'Superadmin',
   admin: 'Admin',
   staff: 'Staf',
+  developer: 'Developer',
 } as const
 
 /**
@@ -84,7 +85,8 @@ export const APPROVAL_FIELD_LABELS: Record<string, string> = {
 }
 
 export const ROLE_DESCRIPTIONS = {
-  superadmin: 'Akses penuh ke semua properti: menyetujui penghapusan & perubahan penting, kelola pengguna, tempat sampah, dan log aktivitas.',
+  superadmin: 'Pemilik: akses penuh ke properti miliknya sendiri — menyetujui penghapusan & perubahan penting, kelola pengguna, tempat sampah, dan log aktivitas. Tidak dapat melihat properti superadmin lain.',
+  developer: 'Pengembang & pemeliharaan: semua fitur tersedia, tetapi hanya di sandbox berisi data dummy. Tidak pernah melihat data properti asli.',
   admin: 'Operasional pada properti yang ditugaskan, termasuk dokumen penyewa. Penghapusan dan perubahan harga, rekening, denda, DP, perjanjian & tata tertib menunggu persetujuan superadmin.',
   staff: 'Frontdesk: catat pembayaran, kelola penyewa dan kamar. Tidak bisa menghapus atau melihat dokumen identitas; perubahan harga kamar & nominal faktur menunggu persetujuan superadmin.',
 } as const

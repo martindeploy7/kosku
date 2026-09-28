@@ -3,10 +3,10 @@ import { Hono } from 'hono'
 import type { AuditEntry, JobRun } from '@shared/types'
 import { type AppEnv, requireRole, requireUser } from '../auth/context'
 import { hashPassword } from '../auth/password'
-import { revokeUserSessions } from '../auth/session'
+import { revokeUserSessions, type SessionUser, workspaceOf } from '../auth/session'
 import { db, iso, schema } from '../db/client'
 import { temporaryPassword } from '../lib/crypto'
-import { badRequest, conflict, notFound } from '../lib/errors'
+import { badRequest, forbidden, notFound } from '../lib/errors'
 import { bumpRev } from '../lib/rev'
 import { runDailyNow } from '../jobs'
 import { writeAudit } from '../services/audit'
@@ -29,25 +29,52 @@ const userFields = {
   propertyIds: z.array(uuid).max(20).default([]),
 }
 
+/** A user of the caller's own workspace. Accounts of other owners simply don't exist here. */
+async function workspaceUser(u: SessionUser, id: string) {
+  const target = await db.query.users.findFirst({ where: and(eq(schema.users.id, id), isNull(schema.users.deletedAt)) })
+  if (!target || workspaceOf(target) !== u.ownerId) throw notFound('Pengguna')
+  return target
+}
+
+/** Property access can only be granted within the caller's own properties. */
+function ownProperties(u: SessionUser, ids: string[]) {
+  if (ids.some((id) => !u.propertyIds.includes(id))) throw forbidden('Properti yang dipilih bukan milik Anda.')
+  return ids
+}
+
 adminRoutes.post('/users', async (c) => {
   const u = requireRole(c, 'superadmin')
   const body = parse(z.object(userFields), await jsonBody(c))
-  if (!body.allProperties && !body.propertyIds.length && body.role !== 'superadmin') {
+  const newOwner = body.role === 'superadmin'
+  // A new superadmin is a separate owner with an empty workspace of their own.
+  // Only a real owner can start one — a developer's sandbox never creates owners.
+  if (newOwner && u.role !== 'superadmin') throw forbidden('Developer tidak dapat membuat superadmin.')
+  if (!newOwner && !body.allProperties && !body.propertyIds.length) {
     throw badRequest('Pilih minimal satu properti, atau beri akses ke semua properti.')
   }
   // Handed over in person; the user must replace it at first login.
   const temp = temporaryPassword()
-  const [row] = await db.insert(schema.users).values({
-    ...body,
-    allProperties: body.role === 'superadmin' ? true : body.allProperties,
-    passwordHash: await hashPassword(temp),
-    mustChangePassword: true,
-  }).returning()
+  const row = await db.transaction(async (tx) => {
+    const [created] = await tx.insert(schema.users).values({
+      ...body,
+      allProperties: newOwner ? true : body.allProperties,
+      propertyIds: newOwner ? [] : ownProperties(u, body.propertyIds),
+      ownerId: newOwner ? null : u.ownerId,
+      passwordHash: await hashPassword(temp),
+      mustChangePassword: true,
+    }).returning()
+    if (!newOwner) return created
+    const [owner] = await tx.update(schema.users).set({ ownerId: created.id }).where(eq(schema.users.id, created.id)).returning()
+    return owner
+  })
   await writeAudit(u, c.get('ip'), {
-    action: 'user.create', entityType: 'user', entityId: row.id, summary: `Tambah pengguna @${row.username} (${row.role})`,
+    action: 'user.create', entityType: 'user', entityId: row.id, ownerId: u.ownerId,
+    summary: newOwner
+      ? `Buat superadmin baru @${row.username} (pemilik terpisah — tidak dapat melihat data Anda, dan sebaliknya)`
+      : `Tambah pengguna @${row.username} (${row.role})`,
   })
   bumpRev()
-  return c.json({ user: toUser(row), temporaryPassword: temp }, 201)
+  return c.json({ user: toUser(row), temporaryPassword: temp, separateWorkspace: newOwner }, 201)
 })
 
 adminRoutes.patch('/users/:id', async (c) => {
@@ -57,25 +84,20 @@ adminRoutes.patch('/users/:id', async (c) => {
     version,
     name: userFields.name.optional(),
     phone: z.string().max(30).optional(),
-    role: userFields.role.optional(),
+    // Staff and admins only: an owner (superadmin/developer) is never created or removed by an edit.
+    role: z.enum(['admin', 'staff']).optional(),
     allProperties: z.boolean().optional(),
     propertyIds: z.array(uuid).max(20).optional(),
     isActive: z.boolean().optional(),
   }), await jsonBody(c))
-  const target = await db.query.users.findFirst({ where: and(eq(schema.users.id, id), isNull(schema.users.deletedAt)) })
-  if (!target) throw notFound('Pengguna')
-
-  const demoting = target.role === 'superadmin' && ((body.role && body.role !== 'superadmin') || body.isActive === false)
-  if (demoting) {
-    if (id === u.id) throw badRequest('Anda tidak dapat menurunkan atau menonaktifkan akun Anda sendiri.')
-    const supers = await db.select({ c: dsql<number>`count(*)` }).from(schema.users)
-      .where(and(eq(schema.users.role, 'superadmin'), eq(schema.users.isActive, true), isNull(schema.users.deletedAt)))
-    if (Number(supers[0].c) <= 1) throw conflict('Harus ada minimal satu superadmin aktif.')
+  const target = await workspaceUser(u, id)
+  const isOwner = target.role === 'superadmin' || target.role === 'developer'
+  if (isOwner && (body.role || body.isActive === false || body.allProperties === false || body.propertyIds)) {
+    throw badRequest('Peran, status, dan akses pemilik tidak dapat diubah.')
   }
   const { version: v, ...patch } = body
-  // A superadmin reviews requests from every property, so always sees all of them.
-  if ((patch.role ?? target.role) === 'superadmin') patch.allProperties = true
-  else if (patch.allProperties === false && !(patch.propertyIds ?? target.propertyIds).length) {
+  if (patch.propertyIds) patch.propertyIds = ownProperties(u, patch.propertyIds)
+  if (!isOwner && patch.allProperties === false && !(patch.propertyIds ?? target.propertyIds).length) {
     throw badRequest('Pilih minimal satu properti, atau beri akses ke semua properti.')
   }
   const row = await updateVersioned(db, schema.users, id, v, patch)
@@ -93,8 +115,7 @@ adminRoutes.patch('/users/:id', async (c) => {
 adminRoutes.post('/users/:id/reset-password', async (c) => {
   const u = requireRole(c, 'superadmin')
   const id = parse(uuid, c.req.param('id'))
-  const target = await db.query.users.findFirst({ where: and(eq(schema.users.id, id), isNull(schema.users.deletedAt)) })
-  if (!target) throw notFound('Pengguna')
+  const target = await workspaceUser(u, id)
   const temp = temporaryPassword()
   await db.update(schema.users).set({
     passwordHash: await hashPassword(temp), mustChangePassword: true, failedAttempts: 0, lockedUntil: null,
@@ -109,6 +130,7 @@ adminRoutes.post('/users/:id/reset-password', async (c) => {
 adminRoutes.post('/users/:id/unlock', async (c) => {
   const u = requireRole(c, 'superadmin')
   const id = parse(uuid, c.req.param('id'))
+  await workspaceUser(u, id)
   await db.update(schema.users).set({ failedAttempts: 0, lockedUntil: null }).where(eq(schema.users.id, id))
   await writeAudit(u, c.get('ip'), { action: 'user.unlock', entityType: 'user', entityId: id, summary: 'Buka kunci akun' })
   return c.json({ ok: true })
@@ -117,6 +139,7 @@ adminRoutes.post('/users/:id/unlock', async (c) => {
 adminRoutes.post('/users/:id/logout', async (c) => {
   const u = requireRole(c, 'superadmin')
   const id = parse(uuid, c.req.param('id'))
+  await workspaceUser(u, id)
   await revokeUserSessions(id)
   await writeAudit(u, c.get('ip'), { action: 'user.logout_all', entityType: 'user', entityId: id, summary: 'Paksa keluar dari semua perangkat' })
   return c.json({ ok: true })
@@ -125,14 +148,27 @@ adminRoutes.post('/users/:id/logout', async (c) => {
 adminRoutes.delete('/users/:id', async (c) => {
   const u = requireRole(c, 'superadmin')
   const id = parse(uuid, c.req.param('id'))
+  const target = await workspaceUser(u, id)
+  if (target.role === 'superadmin' || target.role === 'developer') throw badRequest('Akun pemilik tidak dapat dihapus dari sini.')
   return c.json(await softDelete('user', id, u, c.get('ip')))
+})
+
+/* ================================================================== developer sandbox */
+
+adminRoutes.post('/dev/reset-sandbox', async (c) => {
+  const u = requireUser(c)
+  if (u.role !== 'developer') throw forbidden('Hanya untuk akun developer.')
+  const { resetSandbox } = await import('../sandbox')
+  const result = await resetSandbox(u.id)
+  await writeAudit(u, c.get('ip'), { action: 'dev.reset_sandbox', entityType: 'workspace', summary: 'Reset data dummy sandbox' })
+  return c.json(result)
 })
 
 /* ================================================================== trash (superadmin) */
 
 adminRoutes.get('/trash', async (c) => {
-  requireRole(c, 'superadmin')
-  return c.json(await listTrash())
+  const u = requireRole(c, 'superadmin')
+  return c.json(await listTrash(u.ownerId))
 })
 
 adminRoutes.post('/trash/:id/restore', async (c) => {
@@ -145,7 +181,7 @@ adminRoutes.post('/trash/:id/restore', async (c) => {
 /* ================================================================== audit log (superadmin) */
 
 adminRoutes.get('/audit', async (c) => {
-  requireRole(c, 'superadmin')
+  const u = requireRole(c, 'superadmin')
   const q = parse(z.object({
     before: z.string().datetime().optional(),
     limit: z.coerce.number().int().min(1).max(200).default(100),
@@ -155,6 +191,7 @@ adminRoutes.get('/audit', async (c) => {
   const a = schema.auditLogs
   const rows = await db.select().from(a)
     .where(and(
+      eq(a.ownerId, u.ownerId),
       q.before ? lt(a.createdAt, q.before) : undefined,
       q.entityType ? eq(a.entityType, q.entityType) : undefined,
       q.entityId ? eq(a.entityId, q.entityId) : undefined,

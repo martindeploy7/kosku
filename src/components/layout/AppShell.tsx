@@ -35,9 +35,9 @@ const NAV: NavItem[] = [
 ]
 
 const ADMIN_NAV: NavItem[] = [
-  { to: '/users', label: 'Pengguna', icon: UsersRound, roles: ['superadmin'] },
-  { to: '/trash', label: 'Tempat Sampah', icon: Trash2, roles: ['superadmin'] },
-  { to: '/activity', label: 'Log & Sistem', icon: History, roles: ['superadmin'] },
+  { to: '/users', label: 'Pengguna', icon: UsersRound, roles: ['superadmin', 'developer'] },
+  { to: '/trash', label: 'Tempat Sampah', icon: Trash2, roles: ['superadmin', 'developer'] },
+  { to: '/activity', label: 'Log & Sistem', icon: History, roles: ['superadmin', 'developer'] },
 ]
 
 const POLL_MS = 15_000
@@ -177,7 +177,7 @@ function Topbar({ onOpenMobileNav, me }: { onOpenMobileNav: () => void; me: Me }
                 <div className="p-4 border-b border-border">
                   <p className="font-bold text-sm truncate">{me.name}</p>
                   <p className="text-xs text-muted-foreground truncate mt-0.5">@{me.username}</p>
-                  <Badge tone={me.role === 'superadmin' ? 'primary' : me.role === 'admin' ? 'info' : 'muted'} className="mt-2">
+                  <Badge tone={me.role === 'superadmin' || me.role === 'developer' ? 'primary' : me.role === 'admin' ? 'info' : 'muted'} className="mt-2">
                     <ShieldCheck className="h-3 w-3" /> {ROLE_LABELS[me.role]}
                   </Badge>
                 </div>
@@ -347,6 +347,12 @@ export default function AppShell() {
           </div>
         )}
         <Topbar onOpenMobileNav={() => setMobileOpen(true)} me={me} />
+        {me.sandbox && (
+          <div role="status" className="px-4 sm:px-6 py-2 text-xs font-semibold bg-amber-400 text-amber-950 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <span>MODE DEVELOPER · data dummy (sandbox)</span>
+            <span className="font-normal">Data properti asli tidak terlihat dari akun ini, dan WhatsApp selalu disimulasikan.</span>
+          </div>
+        )}
         <main className="flex-1 px-4 sm:px-6 py-6">
           <Outlet />
         </main>

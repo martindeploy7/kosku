@@ -42,7 +42,12 @@ export const users = pgTable(
     username: text('username').notNull(),
     name: text('name').notNull(),
     phone: text('phone').notNull().default(''),
-    role: text('role', { enum: ['superadmin', 'admin', 'staff'] }).notNull(),
+    role: text('role', { enum: ['superadmin', 'admin', 'staff', 'developer'] }).notNull(),
+    /**
+     * The workspace this account belongs to: the superadmin (owner) who manages it.
+     * A superadmin or developer owns their own workspace (owner_id = id).
+     */
+    ownerId: uuid('owner_id'),
     allProperties: boolean('all_properties').notNull().default(true),
     propertyIds: uuid('property_ids').array().notNull().default(sql`'{}'::uuid[]`),
     passwordHash: text('password_hash').notNull(),
@@ -54,7 +59,10 @@ export const users = pgTable(
     ...audit,
     ...softDelete,
   },
-  (t) => [uniqueIndex('users_username_uq').on(sql`lower(${t.username})`).where(sql`${t.deletedAt} is null`)],
+  (t) => [
+    uniqueIndex('users_username_uq').on(sql`lower(${t.username})`).where(sql`${t.deletedAt} is null`),
+    index('users_owner_idx').on(t.ownerId),
+  ],
 )
 
 export const sessions = pgTable(
@@ -102,11 +110,20 @@ export const properties = pgTable(
     templates: jsonb('templates').$type<{ whatsapp: MessageTemplate[] }>().notNull(),
     rules: jsonb('rules').$type<HouseRules>().notNull(),
     agreement: jsonb('agreement').$type<AgreementSettings>().notNull(),
+    /** The superadmin who owns this property. Other owners can't see or touch it. */
+    ownerId: uuid('owner_id').notNull(),
+    /** A developer's dummy property: WhatsApp is always simulated, never sent. */
+    sandbox: boolean('sandbox').notNull().default(false),
     ...audit,
     ...softDelete,
   },
-  // One property ↔ one WhatsApp number: two live properties can never share it.
-  (t) => [uniqueIndex('properties_phone_uq').on(t.phone).where(sql`${t.deletedAt} is null`)],
+  (t) => [
+    // One property ↔ one WhatsApp number: two live properties can never share it.
+    uniqueIndex('properties_phone_uq').on(t.phone).where(sql`${t.deletedAt} is null`),
+    // Invoice and contract numbers start with the code, so it must never repeat (deleted ones included).
+    uniqueIndex('properties_code_uq').on(sql`upper(${t.code})`),
+    index('properties_owner_idx').on(t.ownerId),
+  ],
 )
 
 export const rooms = pgTable(
@@ -159,10 +176,11 @@ export const tenants = pgTable(
     contacts: jsonb('contacts').$type<Contact[]>().notNull().default([]),
     isWaitlist: boolean('is_waitlist').notNull().default(false),
     waitlistPropertyId: uuid('waitlist_property_id').references(() => properties.id),
+    ownerId: uuid('owner_id').notNull(),
     ...audit,
     ...softDelete,
   },
-  (t) => [index('tenants_phone_idx').on(t.phone)],
+  (t) => [index('tenants_phone_idx').on(t.phone), index('tenants_owner_idx').on(t.ownerId)],
 )
 
 export const rentals = pgTable(
@@ -416,6 +434,8 @@ export const notifications = pgTable(
     audience: text('audience', { enum: ['all', 'superadmin'] }).notNull().default('all'),
     /** Set → only this user sees it (e.g. "your request was approved"). */
     userId: uuid('user_id'),
+    /** Workspace it belongs to; null only for system-wide notices (e.g. a failed job). */
+    ownerId: uuid('owner_id'),
     /** Makes scheduled notifications idempotent (one "due today" per invoice per day). */
     dedupeKey: text('dedupe_key'),
     createdAt: ts('created_at').notNull().defaultNow(),
@@ -455,6 +475,7 @@ export const auditLogs = pgTable(
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id'),
     propertyId: uuid('property_id'),
+    ownerId: uuid('owner_id'),
     summary: text('summary').notNull(),
     meta: jsonb('meta'),
     ip: text('ip'),
@@ -472,6 +493,7 @@ export const trash = pgTable(
     entityId: uuid('entity_id').notNull(),
     label: text('label').notNull(),
     propertyId: uuid('property_id'),
+    ownerId: uuid('owner_id'),
     counts: jsonb('counts').$type<Record<string, number>>().notNull().default({}),
     deletedBy: uuid('deleted_by'),
     deletedByName: text('deleted_by_name').notNull(),
@@ -496,6 +518,7 @@ export const approvalRequests = pgTable(
     entityType: text('entity_type').notNull(),
     entityId: uuid('entity_id').notNull(),
     propertyId: uuid('property_id'),
+    ownerId: uuid('owner_id'),
     label: text('label').notNull(),
     /** What will be applied (the patch, or delete options). */
     payload: jsonb('payload').$type<Record<string, unknown>>().notNull().default({}),

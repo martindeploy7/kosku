@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNotNull, isNull, sql as dsql, type SQL } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull, isNull, or, sql as dsql, type SQL } from 'drizzle-orm'
 import type { AnyPgColumn } from 'drizzle-orm/pg-core'
 import { Hono } from 'hono'
 import {
@@ -10,12 +10,12 @@ import { addDays } from '@shared/dates'
 import { isValidPhone, normalizePhone } from '@shared/phone'
 import type { Bootstrap } from '@shared/types'
 import {
-  type AppEnv, accessibleProperties, assertPropertyAccess, canDelete, requireRole, requireUser,
+  type AppEnv, accessibleProperties, assertPropertyAccess, canDelete, isSuper, requireRole, requireUser,
 } from '../auth/context'
 import type { SessionUser } from '../auth/session'
-import { db, schema } from '../db/client'
+import { type Executor, db, schema } from '../db/client'
 import { env } from '../env'
-import { badRequest, forbidden, notFound } from '../lib/errors'
+import { badRequest, conflict, forbidden, notFound } from '../lib/errors'
 import { bumpRev, currentRev } from '../lib/rev'
 import { renderAgreementPdf } from '../pdf/agreement'
 import { writeAudit } from '../services/audit'
@@ -56,19 +56,22 @@ export async function buildBootstrap(user: SessionUser): Promise<Bootstrap> {
       db.select().from(schema.payments).where(and(live(schema.payments), scoped(user, schema.payments.propertyId))),
       db.select().from(schema.expenses).where(and(live(schema.expenses), scoped(user, schema.expenses.propertyId))),
       db.select().from(schema.contracts).where(and(live(schema.contracts), scoped(user, schema.contracts.propertyId))),
-      user.role === 'superadmin' ? db.select().from(schema.users).where(live(schema.users)) : Promise.resolve([]),
-      db.select().from(schema.tenants).where(live(schema.tenants)),
+      isSuper(user)
+        ? db.select().from(schema.users).where(and(live(schema.users), or(eq(schema.users.ownerId, user.ownerId), eq(schema.users.id, user.ownerId))))
+        : Promise.resolve([]),
+      db.select().from(schema.tenants).where(and(live(schema.tenants), eq(schema.tenants.ownerId, user.ownerId))),
       db.select({ id: schema.users.id, name: schema.users.name }).from(schema.users),
     ])
 
   // Tenants: anyone with a lease in scope, plus prospects not tied to another property.
   const scope = accessibleProperties(user)
   const tenantIdsInScope = new Set(rentals.map((r) => r.tenantId))
+  // Tenants are already limited to this workspace; a limited account sees only its properties' people.
   const everRented = new Set(
-    scope === null ? [] : (await db.select({ t: schema.rentals.tenantId }).from(schema.rentals)).map((r) => r.t),
+    user.allProperties ? [] : (await db.select({ t: schema.rentals.tenantId }).from(schema.rentals)).map((r) => r.t),
   )
   const visibleTenants = tenants.filter((t) =>
-    scope === null ||
+    user.allProperties ||
     tenantIdsInScope.has(t.id) ||
     (!everRented.has(t.id) && (!t.waitlistPropertyId || scope.includes(t.waitlistPropertyId))),
   )
@@ -82,10 +85,15 @@ export async function buildBootstrap(user: SessionUser): Promise<Bootstrap> {
   }
 
   const names = new Map(allUsers.map((u) => [u.id, u.name]))
+  // Names of deleted records (for history labels) — this workspace only.
   const [delProps, delRooms, delTenants] = await Promise.all([
-    db.select({ id: schema.properties.id, name: schema.properties.name }).from(schema.properties).where(isNotNull(schema.properties.deletedAt)),
-    db.select({ id: schema.rooms.id, name: schema.rooms.name }).from(schema.rooms).where(isNotNull(schema.rooms.deletedAt)),
-    db.select({ id: schema.tenants.id, name: schema.tenants.name }).from(schema.tenants).where(isNotNull(schema.tenants.deletedAt)),
+    db.select({ id: schema.properties.id, name: schema.properties.name }).from(schema.properties)
+      .where(and(isNotNull(schema.properties.deletedAt), eq(schema.properties.ownerId, user.ownerId))),
+    db.select({ id: schema.rooms.id, name: schema.rooms.name }).from(schema.rooms)
+      .innerJoin(schema.properties, eq(schema.properties.id, schema.rooms.propertyId))
+      .where(and(isNotNull(schema.rooms.deletedAt), eq(schema.properties.ownerId, user.ownerId))),
+    db.select({ id: schema.tenants.id, name: schema.tenants.name }).from(schema.tenants)
+      .where(and(isNotNull(schema.tenants.deletedAt), eq(schema.tenants.ownerId, user.ownerId))),
   ])
   const toMap = (rows: { id: string; name: string }[]) => Object.fromEntries(rows.map((r) => [r.id, r.name]))
 
@@ -104,7 +112,7 @@ export async function buildBootstrap(user: SessionUser): Promise<Bootstrap> {
     expenses: expenses.map(toExpense),
     contracts: contracts.map(toContract),
     users: users.map(toUser),
-    settings: await getAppSettings(),
+    settings: await getAppSettings(user.ownerId),
     deletedNames: { properties: toMap(delProps), rooms: toMap(delRooms), tenants: toMap(delTenants) },
     approvals: await listApprovals(user, { status: 'pending' }),
   }
@@ -120,14 +128,16 @@ coreRoutes.get('/bootstrap', async (c) => {
 coreRoutes.get('/sync', async (c) => {
   const u = requireUser(c)
   c.header('Cache-Control', 'no-store')
-  return c.json({ rev: currentRev(), unread: await unreadCount(u), wa: connectionStatuses(), today: appToday() })
+  // WhatsApp link states of this user's properties only.
+  const wa = Object.fromEntries(Object.entries(connectionStatuses()).filter(([id]) => u.propertyIds.includes(id)))
+  return c.json({ rev: currentRev(), unread: await unreadCount(u), wa, today: appToday() })
 })
 
 /* ================================================================== settings */
 
 coreRoutes.get('/settings', async (c) => {
-  requireUser(c)
-  return c.json(await getAppSettings())
+  const u = requireUser(c)
+  return c.json(await getAppSettings(u.ownerId))
 })
 
 const reminder = z.object({ enabled: z.boolean(), days: z.number().int().min(1).max(30) })
@@ -145,13 +155,28 @@ coreRoutes.put('/settings', async (c) => {
       }),
     }),
   }), await jsonBody(c))
-  const saved = await saveAppSettings(body)
+  const saved = await saveAppSettings(u.ownerId, body)
   await writeAudit(u, c.get('ip'), { action: 'settings.update', entityType: 'settings', summary: 'Ubah pengaturan pengingat otomatis' })
   bumpRev()
   return c.json(saved)
 })
 
 /* ================================================================== properties */
+
+/**
+ * Invoice numbers start with the property code, so codes never repeat — across
+ * all owners, deleted properties included. A suggested code gets a number
+ * appended (MLT -> MLT2); a code the user typed must be free.
+ */
+async function uniqueCode(exec: Executor, code: string, typed: boolean) {
+  const taken = new Set((await exec.select({ c: schema.properties.code }).from(schema.properties)).map((r) => r.c.toUpperCase()))
+  if (!taken.has(code)) return code
+  if (typed) throw conflict(`Kode faktur "${code}" sudah dipakai properti lain. Pilih kode lain.`)
+  for (let n = 2; ; n++) {
+    const next = `${code.slice(0, 4)}${n}`
+    if (!taken.has(next)) return next
+  }
+}
 
 function codeFromName(name: string) {
   const words = name.replace(/^(kost?|kos|rumah kos|residence|residen)\s+/i, '').split(/\s+/).filter(Boolean)
@@ -216,7 +241,9 @@ coreRoutes.post('/properties', async (c) => {
   const row = await db.transaction(async (tx) => {
     const [p] = await tx.insert(schema.properties).values({
       name: body.name,
-      code: (body.code || codeFromName(body.name)).toUpperCase(),
+      code: await uniqueCode(tx, (body.code || codeFromName(body.name)).toUpperCase(), Boolean(body.code)),
+      ownerId: u.ownerId,
+      sandbox: u.sandbox,
       phone: body.phone,
       note: body.note ?? '',
       address: body.address ?? { street: '', postcode: '', province: '', city: '', district: '', subdistrict: '', lat: -6.2088, lng: 106.8456 },
@@ -439,11 +466,12 @@ coreRoutes.post('/tenants', async (c) => {
   const u = requireUser(c)
   const body = parse(z.object(tenantFields).partial().required({ name: true, contacts: true }), await jsonBody(c))
   if (body.waitlistPropertyId) assertPropertyAccess(u, body.waitlistPropertyId)
-  const settings = await getAppSettings()
+  const settings = await getAppSettings(u.ownerId)
   if (settings.requireIdNumber && !body.idNumber) throw badRequest('Nomor identitas (NIK) wajib diisi.')
   if (!isValidPhone(body.contacts[0].phone)) throw badRequest('Nomor WhatsApp penyewa tidak valid.')
 
-  const [row] = await db.insert(schema.tenants).values(tenantColumns(body) as typeof schema.tenants.$inferInsert).returning()
+  const [row] = await db.insert(schema.tenants)
+    .values({ ...tenantColumns(body), ownerId: u.ownerId } as typeof schema.tenants.$inferInsert).returning()
   await writeAudit(u, c.get('ip'), {
     action: 'tenant.create', entityType: 'tenant', entityId: row.id, propertyId: row.waitlistPropertyId,
     summary: `Tambah ${row.isWaitlist ? 'calon penyewa (daftar tunggu)' : 'penyewa'} ${row.name}`,
@@ -454,7 +482,8 @@ coreRoutes.post('/tenants', async (c) => {
 
 async function assertTenantAccess(u: SessionUser, tenantId: string) {
   const t = await db.query.tenants.findFirst({ where: and(eq(schema.tenants.id, tenantId), isNull(schema.tenants.deletedAt)) })
-  if (!t) throw notFound('Penyewa')
+  // Another owner's tenant doesn't exist as far as this user is concerned.
+  if (!t || t.ownerId !== u.ownerId) throw notFound('Penyewa')
   if (!u.allProperties) {
     const rentals = await db.select({ p: schema.rentals.propertyId }).from(schema.rentals).where(eq(schema.rentals.tenantId, tenantId))
     const props = new Set([...rentals.map((r) => r.p), ...(t.waitlistPropertyId ? [t.waitlistPropertyId] : [])])
@@ -468,6 +497,7 @@ coreRoutes.patch('/tenants/:id', async (c) => {
   const id = parse(uuid, c.req.param('id'))
   const body = parse(z.object(tenantFields).partial().extend({ version }), await jsonBody(c))
   const t = await assertTenantAccess(u, id)
+  if (body.waitlistPropertyId) assertPropertyAccess(u, body.waitlistPropertyId)
   if (body.contacts && !isValidPhone(body.contacts[0].phone)) throw badRequest('Nomor WhatsApp penyewa tidak valid.')
   const { version: v, ...patch } = body
   const row = await updateVersioned(db, schema.tenants, id, v, tenantColumns(patch))

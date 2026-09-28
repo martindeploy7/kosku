@@ -39,6 +39,18 @@ interface Session {
   sending: boolean
   /** Mock driver only: pretend this number scanned. */
   mockPhone?: string
+  /** Simulated: mock driver, or a developer's sandbox property (never sends for real). */
+  simulated: boolean
+}
+
+/**
+ * WhatsApp is simulated for the whole server in mock mode, and ALWAYS for a
+ * developer's sandbox property — dummy tenants must never receive real messages.
+ */
+async function isSimulated(propertyId: string) {
+  if (env.WA_DRIVER === 'mock') return true
+  const p = await db.query.properties.findFirst({ where: eq(schema.properties.id, propertyId), columns: { sandbox: true } })
+  return Boolean(p?.sandbox)
 }
 
 const sessions = new Map<string, Session>()
@@ -62,7 +74,7 @@ const silentLogger = {
 function session(propertyId: string): Session {
   let s = sessions.get(propertyId)
   if (!s) {
-    s = { propertyId, status: 'disconnected', phone: null, qr: null, lastError: null, sock: null, stopping: false, retries: 0, sending: false }
+    s = { propertyId, status: 'disconnected', phone: null, qr: null, lastError: null, sock: null, stopping: false, retries: 0, sending: false, simulated: env.WA_DRIVER === 'mock' }
     sessions.set(propertyId, s)
   }
   return s
@@ -112,7 +124,7 @@ export async function getSessionStatus(propertyId: string): Promise<WaSession> {
     expectedPhone: property?.phone ?? '',
     lastError: s.lastError,
     qr: s.qr,
-    driver: env.WA_DRIVER,
+    driver: s.simulated || property?.sandbox ? 'mock' : env.WA_DRIVER,
   }
 }
 
@@ -189,9 +201,10 @@ export async function initWhatsApp() {
       s.status = 'mismatch'
       s.lastError = row.lastError
     }
-    if (env.WA_DRIVER === 'mock' ? row?.status === 'connected' : await hasAuthState(p.id)) {
+    const simulated = env.WA_DRIVER === 'mock' || p.sandbox
+    if (simulated ? row?.status === 'connected' : await hasAuthState(p.id)) {
       const s = session(p.id)
-      if (env.WA_DRIVER === 'mock') s.mockPhone = row?.phone ?? p.phone
+      if (simulated) s.mockPhone = row?.phone ?? p.phone
       await start(s).catch((e) => log.error('Gagal menyambungkan ulang WhatsApp', { propertyId: p.id, ...errMeta(e) }))
     } else if (row && row.status !== 'disconnected' && row.status !== 'mismatch') {
       await setStatus(session(p.id), 'disconnected')
@@ -248,7 +261,8 @@ async function onLinked(s: Session, linkedJid: string | undefined) {
 }
 
 async function start(s: Session) {
-  if (env.WA_DRIVER === 'mock') return startMock(s)
+  s.simulated = await isSimulated(s.propertyId)
+  if (s.simulated) return startMock(s)
   await setStatus(s, 'connecting')
 
   const { state, saveCreds } = await usePgAuthState(s.propertyId)
@@ -498,7 +512,7 @@ async function drain(propertyId: string) {
 }
 
 async function deliver(s: Session, msg: typeof schema.waMessages.$inferSelect): Promise<string> {
-  if (env.WA_DRIVER === 'mock') {
+  if (s.simulated) {
     await sleep(150)
     if (/^0+$/.test(msg.phone.slice(-6))) throw new Error('Nomor tidak terdaftar di WhatsApp.')
     return `MOCK-${Date.now().toString(36)}`

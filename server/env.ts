@@ -26,6 +26,8 @@ const schema = z.object({
   S3_ACCESS_KEY_ID: z.string().optional(),
   S3_SECRET_ACCESS_KEY: z.string().optional(),
   UPLOAD_MAX_MB: z.coerce.number().default(10),
+  /** Login attempts per IP per 15 minutes (raise only for automated tests). */
+  LOGIN_IP_LIMIT: z.coerce.number().int().min(5).default(20),
 
   /** `baileys` links a real WhatsApp number via QR; `mock` simulates it for development. */
   WA_DRIVER: z.enum(['baileys', 'mock']).default('baileys'),

@@ -19,6 +19,8 @@ Bukan SaaS: tidak ada pendaftaran publik, langganan, payment gateway, website pe
 | **WhatsApp 1 properti = 1 nomor** | Nomor diatur di properti, lalu dihubungkan dengan scan QR. Jika HP yang memindai **bernomor lain, tautan langsung dibatalkan** (logout + kredensial dihapus). Nomor unik antar properti (dijaga database). Nomor tidak bisa diganti selama WA terhubung. |
 | **WhatsApp dua arah** | Keluar: faktur (PDF), kuitansi, pengingat jatuh tempo/terlambat, info DP & gagal bayar, perjanjian (PDF + tautan), salinan bertanda tangan, ucapan ulang tahun. Masuk: foto/PDF dari penyewa (bukti transfer) disimpan di aplikasi. Admin diberi tahu *"kemungkinan bukti bayar"* dan bisa langsung **mencatat pembayaran dengan bukti itu** dari halaman WhatsApp. Pesan otomatis tidak dikirim pukul 21.00–06.00. |
 | **Notifikasi admin** | Lonceng in-app + **web push** ke HP/laptop: gagal bayar, batas DP, perjanjian dibuka/ditandatangani, pesan WA masuk, WA terputus/nomor tidak cocok, job gagal. |
+| **Pemilik terpisah (workspace)** | Setiap superadmin hanya mengelola properti yang ia buat sendiri. Properti, penyewa, tagihan, laporan laba rugi, dokumen, WhatsApp, pengguna, persetujuan, tempat sampah, log, dan pengaturan pengingat milik superadmin lain tidak terlihat dan tidak bisa disentuh (dijaga di server, bukan hanya di tampilan). Admin/staf bekerja di workspace superadmin yang membuatnya. |
+| **Akun developer (sandbox)** | Role `developer` memakai semua fitur superadmin, tetapi di workspace sandbox berisi **data dummy**; data properti asli tidak pernah terlihat. WhatsApp sandbox selalu disimulasikan, dan data dummy bisa direset kapan saja (Pengaturan → Reset data dummy). |
 | **Multi-admin** | Peran superadmin / admin / staf, akses per properti, audit log, *optimistic locking* (dua admin tidak saling menimpa), sinkronisasi antar perangkat. |
 | **Login tanpa email** | Superadmin membuat akun dan membagikan **password sementara** secara langsung, yang wajib diganti saat login pertama. Reset juga oleh superadmin. Ada jalur darurat CLI di server. |
 
@@ -73,11 +75,13 @@ Saat pertama jalan, log API mencetak **username `admin` + password sementara**. 
 npm run cli:dev -- seed-demo        # isi data contoh (2 properti, 10 kamar, penyewa, tagihan, DP)
 npm run test                        # unit test logika keuangan (prorata, denda, DP, status kamar, nomor WA)
 npm run typecheck
-SMOKE_PASSWORD=<password> node scripts/smoke.mjs http://localhost:8787   # ±47 pemeriksaan end-to-end
+SMOKE_PASSWORD=<password> node scripts/smoke.mjs http://localhost:8787   # ±110 pemeriksaan end-to-end (termasuk isolasi pemilik & sandbox)
 npx tsx --env-file=.env.development scripts/run-daily-at.ts 2026-10-01    # simulasi job malam pada tanggal tertentu
 ```
 
 `.env.development` memakai `WA_DRIVER=mock`: QR simulasi yang "dipindai" otomatis, dan pesan tidak benar-benar dikirim.
+`INITIAL_DEVELOPER_USERNAME=developer` juga membuat akun **developer** dengan sandbox data dummy saat boot pertama
+(password sementara dicetak di log API).
 
 ---
 
@@ -127,7 +131,9 @@ docker compose start app
 ### Perintah darurat (di server)
 ```bash
 docker compose exec app node dist-server/cli.js reset-password <username>   # superadmin lupa password
-docker compose exec app node dist-server/cli.js create-superadmin <username> "Nama"
+docker compose exec app node dist-server/cli.js create-superadmin <username> "Nama"   # pemilik baru = workspace terpisah
+docker compose exec app node dist-server/cli.js create-developer <username>           # akun maintenance, data dummy saja
+docker compose exec app node dist-server/cli.js reset-sandbox <username-developer>
 docker compose exec app node dist-server/cli.js unlock <username>
 docker compose exec app node dist-server/cli.js run-daily
 ```

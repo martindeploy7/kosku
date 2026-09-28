@@ -142,6 +142,23 @@ terhadap database production.
 - Mode WhatsApp asli tetap membutuhkan service always-on dan strategi sesi persisten;
   jangan aktifkan `WA_DRIVER=baileys` di Render Free.
 
+## Akun developer untuk maintenance (setelah serah terima)
+
+Developer tidak perlu melihat data asli. Buat akun khusus yang bekerja di sandbox berisi data dummy:
+
+```bash
+node dist-server/cli.js create-developer developer
+# Render: Shell service → jalankan perintah di atas. Docker: docker compose exec app node dist-server/cli.js ...
+```
+
+Akun ini memakai semua fitur (termasuk Log & Sistem) untuk menguji dan mengembangkan fitur baru, tetapi hanya pada
+properti dummy miliknya; WhatsApp sandbox selalu disimulasikan. Jangan set `INITIAL_DEVELOPER_USERNAME` di production
+kecuali memang ingin akun developer dibuat otomatis saat boot.
+
+Setiap superadmin adalah pemilik terpisah: ia hanya melihat properti yang ia buat. Superadmin baru dapat dibuat oleh
+superadmin lain (menu Pengguna) atau lewat `create-superadmin`. Migrasi `0004` memberikan seluruh data lama kepada
+superadmin pertama.
+
 ## Saat siap production sungguhan
 
 Naikkan backend ke Render paid atau VPS kecil dengan Docker Compose. Stack production

@@ -174,6 +174,8 @@ export const actions = {
   resetUserPassword: (id: ID) => api.post<{ temporaryPassword: string }>(`/users/${id}/reset-password`),
   unlockUser: (id: ID) => api.post(`/users/${id}/unlock`),
   logoutUser: (id: ID) => api.post(`/users/${id}/logout`),
+  /** Developer only: replace the sandbox's dummy data with a fresh set. */
+  resetSandbox: () => api.post('/dev/reset-sandbox'),
   deleteUser: (id: ID) => api.del<Del>(`/users/${id}`),
 
   /* approvals (four-eyes) */

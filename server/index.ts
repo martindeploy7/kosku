@@ -1,6 +1,7 @@
 import { serve } from '@hono/node-server'
 import { createApp } from './app'
 import { ensureInitialSuperadmin } from './bootstrapAdmin'
+import { ensureInitialDeveloper } from './sandbox'
 import { sql } from './db/client'
 import { runMigrations } from './db/migrate'
 import { env } from './env'
@@ -27,6 +28,7 @@ async function main() {
   await waitForDatabase()
   await runMigrations()
   await ensureInitialSuperadmin()
+  await ensureInitialDeveloper().catch((e) => log.error('Gagal membuat developer awal', errMeta(e)))
   await initPush()
 
   const app = createApp()

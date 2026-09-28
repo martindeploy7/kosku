@@ -29,6 +29,13 @@
       "when": 1790484445362,
       "tag": "0003_recurring_expenses",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790563351075,
+      "tag": "0004_workspaces",
+      "breakpoints": true
     }
   ]
 }

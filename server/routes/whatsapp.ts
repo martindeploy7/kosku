@@ -36,7 +36,7 @@ waRoutes.post('/:propertyId/connect', async (c) => {
   const { p } = await propertyFor(c, id)
   if (!p.phone) throw badRequest('Isi nomor WhatsApp properti terlebih dahulu.')
   // Mock driver only: lets you rehearse the "wrong phone scanned" case.
-  const body = env.WA_DRIVER === 'mock' ? parse(z.object({ mockPhone: z.string().optional() }), await jsonBody(c).catch(() => ({}))) : {}
+  const body = env.WA_DRIVER === 'mock' || p.sandbox ? parse(z.object({ mockPhone: z.string().optional() }), await jsonBody(c).catch(() => ({}))) : {}
   const status = await connect(id, { mockPhone: body.mockPhone ? normalizePhone(body.mockPhone) : undefined })
   await writeAudit(u, c.get('ip'), { action: 'wa.connect', entityType: 'property', entityId: id, propertyId: id, summary: `Mulai menghubungkan WhatsApp ${p.name}` })
   return c.json(status)
@@ -132,8 +132,10 @@ waRoutes.post('/:propertyId/messages', async (c) => {
     body: z.string().trim().min(1).max(4000),
     tenantId: uuid.nullable().default(null),
   }), await jsonBody(c))
+  // Link the message only to a tenant of this workspace.
+  const tenant = body.tenantId ? await db.query.tenants.findFirst({ where: eq(schema.tenants.id, body.tenantId) }) : null
   const row = await queueWa(db, {
-    propertyId: id, tenantId: body.tenantId, phone: normalizePhone(body.phone), body: body.body, createdBy: u.id,
+    propertyId: id, tenantId: tenant?.ownerId === u.ownerId ? tenant.id : null, phone: normalizePhone(body.phone), body: body.body, createdBy: u.id,
   })
   return c.json(toMessage(row!, new Map([[u.id, u.name]])), 201)
 })
@@ -154,9 +156,10 @@ waRoutes.post('/messages/:id/retry', async (c) => {
 
 /** Mock driver only: simulate a tenant writing in, to exercise the inbox and notifications. */
 waRoutes.post('/:propertyId/mock-incoming', async (c) => {
-  if (env.WA_DRIVER !== 'mock') throw notFound('Endpoint')
   const id = parse(uuid, c.req.param('propertyId'))
-  await propertyFor(c, id)
+  const { p } = await propertyFor(c, id)
+  // Simulated WhatsApp only: the mock driver, or a developer's sandbox property.
+  if (env.WA_DRIVER !== 'mock' && !p.sandbox) throw notFound('Endpoint')
   const body = parse(z.object({
     phone: z.string(),
     body: z.string().max(2000).default(''),

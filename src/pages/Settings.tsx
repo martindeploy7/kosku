@@ -1,10 +1,10 @@
 import * as React from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  History, KeyRound, Laptop, Loader2, LogOut, Moon, Save, ShieldCheck, Smartphone, Sun, Trash2, UsersRound,
+  History, KeyRound, Laptop, RotateCcw, Loader2, LogOut, Moon, Save, ShieldCheck, Smartphone, Sun, Trash2, UsersRound,
 } from 'lucide-react'
 import {
-  Badge, Button, Card, CardContent, CardHeader, CardTitle, Checkbox, Field, Input, Select, Switch,
+  Badge, Button, Card, CardContent, CardHeader, CardTitle, Checkbox, ConfirmDialog, Field, Input, Select, Switch,
 } from '@/components/ui'
 import { PageHeader, Tabs } from '@/components/shared'
 import { PushToggle } from '@/components/shared/PushToggle'
@@ -73,6 +73,8 @@ function AccountTab() {
       <div className="space-y-6 min-w-0">
         <Card><CardContent className="pt-5"><PushToggle /></CardContent></Card>
 
+        {me.sandbox && <SandboxCard />}
+
         <Card>
           <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3">
             <CardTitle>Perangkat yang masuk</CardTitle>
@@ -103,6 +105,39 @@ function AccountTab() {
         </Card>
       </div>
     </div>
+  )
+}
+
+/** Developer only: start over with fresh dummy data. */
+function SandboxCard() {
+  const run = useStore((s) => s.run)
+  const [confirm, setConfirm] = React.useState(false)
+  const [busy, setBusy] = React.useState(false)
+  return (
+    <Card className="border-amber-400/60">
+      <CardHeader><CardTitle>Sandbox developer</CardTitle></CardHeader>
+      <CardContent className="space-y-3 text-sm">
+        <p className="text-muted-foreground leading-relaxed">
+          Akun ini hanya bekerja pada data dummy. Semua fitur berfungsi normal untuk pengujian, tetapi data properti,
+          penyewa, dan laporan milik pemilik tidak pernah terlihat. WhatsApp selalu disimulasikan.
+        </p>
+        <Button variant="outline" loading={busy} onClick={() => setConfirm(true)}>
+          <RotateCcw className="h-4 w-4" /> Reset data dummy
+        </Button>
+      </CardContent>
+      <ConfirmDialog
+        open={confirm}
+        onClose={() => setConfirm(false)}
+        title="Reset data dummy?"
+        confirmLabel="Reset"
+        message="Semua data di sandbox (properti, penyewa, tagihan, dan akun uji yang Anda buat) diganti dengan set data dummy baru."
+        onConfirm={async () => {
+          setBusy(true)
+          await run(() => actions.resetSandbox(), { success: 'Data dummy direset' })
+          setBusy(false)
+        }}
+      />
+    </Card>
   )
 }
 

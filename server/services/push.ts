@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import webpush from 'web-push'
+import { workspaceOf } from '../auth/session'
 import { db, schema } from '../db/client'
 import { env } from '../env'
 import { errMeta, log } from '../lib/log'
@@ -35,19 +36,27 @@ export interface PushPayload {
   tag?: string
 }
 
-async function recipients(scope: { propertyId: string | null; audience: 'all' | 'superadmin' }) {
+async function recipients(scope: PushScope) {
   const users = await db
-    .select({ id: schema.users.id, role: schema.users.role, all: schema.users.allProperties, props: schema.users.propertyIds })
+    .select({
+      id: schema.users.id, role: schema.users.role, ownerId: schema.users.ownerId,
+      all: schema.users.allProperties, props: schema.users.propertyIds,
+    })
     .from(schema.users)
     .where(and(eq(schema.users.isActive, true), isNull(schema.users.deletedAt)))
+  const owners = (u: { role: string }) => u.role === 'superadmin' || u.role === 'developer'
   return users
-    .filter((u) => (scope.audience === 'superadmin' ? u.role === 'superadmin' : true))
-    .filter((u) => !scope.propertyId || u.role === 'superadmin' || u.all || u.props.includes(scope.propertyId))
+    // Never outside the workspace the notice belongs to.
+    .filter((u) => (scope.ownerId ? workspaceOf(u as never) === scope.ownerId : owners(u)))
+    .filter((u) => (scope.audience === 'superadmin' ? owners(u) : true))
+    .filter((u) => !scope.propertyId || owners(u) || u.all || u.props.includes(scope.propertyId))
     .map((u) => u.id)
 }
 
+type PushScope = { propertyId: string | null; audience: 'all' | 'superadmin'; ownerId: string | null }
+
 export async function sendPushToAudience(
-  scope: { propertyId: string | null; audience: 'all' | 'superadmin' },
+  scope: PushScope,
   payload: PushPayload,
 ) {
   if (!vapid) return

@@ -303,7 +303,7 @@ coreRoutes.post('/properties/:id/agreement-preview', async (c) => {
     number: `PSK/${p.code}/CONTOH`,
     date: today,
     property: {
-      name: p.name, address: formatAddress(p.address), phone: p.phone, paymentMethods: p.paymentMethods, paymentInfo: p.paymentInfo,
+      name: p.name, code: p.code, address: formatAddress(p.address), phone: p.phone, paymentMethods: p.paymentMethods, paymentInfo: p.paymentInfo,
       lateFee: body.lateFee ?? p.lateFee, booking: body.booking ?? p.booking,
     },
     agreement: body.agreement,

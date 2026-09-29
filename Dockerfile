@@ -21,6 +21,7 @@ RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/dist-server ./dist-server
 COPY drizzle ./drizzle
+COPY --from=build /app/server/pdf/assets ./server/pdf/assets
 RUN mkdir -p /data && chown -R node:node /data
 USER node
 EXPOSE 8787

@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from 'node:fs'
+import path from 'node:path'
 import PDFDocument from 'pdfkit'
 import type { AgreementSnapshot } from '@shared/agreement'
 import { formatDate } from '@shared/dates'
@@ -27,6 +29,28 @@ const INK = '#111827'
 const MUTED = '#6b7280'
 const ACCENT = '#4f46e5'
 
+type AgreementBrand = 'default' | 'lasta' | 'lamira'
+
+const letterheadDir = path.resolve(process.cwd(), 'server/pdf/assets/letterhead')
+const asset = (name: string) => {
+  const file = path.join(letterheadDir, name)
+  return existsSync(file) ? readFileSync(file) : null
+}
+
+const letterheadAssets = {
+  lastaLogo: asset('lasta-logo.png'),
+  lastaAddress: asset('lasta-address.png'),
+  lamiraLogo: asset('lamira-logo.png'),
+  lamiraDecoration: asset('lamira-decoration.png'),
+}
+
+function brandFor(s: AgreementSnapshot): AgreementBrand {
+  const key = `${s.propertyCode ?? ''} ${s.propertyName}`.toLowerCase()
+  if (key.includes('lasta') || /\bdrn\b/.test(key)) return 'lasta'
+  if (key.includes('lamira') || /\bwat\b/.test(key)) return 'lamira'
+  return 'default'
+}
+
 function formatInstant(isoTs: string, tz: string) {
   return new Intl.DateTimeFormat('id-ID', {
     timeZone: tz, day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit',
@@ -35,9 +59,12 @@ function formatInstant(isoTs: string, tz: string) {
 }
 
 export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {}): Promise<Buffer> {
+  const brand = brandFor(s)
   const doc = new PDFDocument({
     size: 'A4',
-    margins: { top: 64, bottom: 64, left: 60, right: 60 },
+    margins: brand === 'default'
+      ? { top: 64, bottom: 64, left: 60, right: 60 }
+      : { top: 128, bottom: 92, left: 60, right: 60 },
     bufferPages: true,
     info: {
       Title: `Perjanjian Sewa & Tata Tertib ${s.number}`,
@@ -65,6 +92,36 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
    * Without one: fall back to the plain property name + address. */
   let logoDrawn = false
   const letterhead = () => {
+    if (brand === 'lasta') {
+      if (letterheadAssets.lastaLogo) {
+        doc.image(letterheadAssets.lastaLogo, left + width - 160, 16, { fit: [160, 86] })
+      } else {
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text('Lasta residence', left + width - 160, 42, { width: 160, align: 'right' })
+      }
+      if (letterheadAssets.lastaAddress) {
+        doc.image(letterheadAssets.lastaAddress, left, 98, { fit: [width, 42] })
+      } else {
+        doc.font('Helvetica').fontSize(8).fillColor('#252064').text(s.propertyAddress || '', left, 104, { width })
+        doc.moveTo(left, 98).lineTo(left + width, 98).lineWidth(1).strokeColor('#252064').stroke()
+      }
+      logoDrawn = true
+      doc.y = 142
+      doc.x = left
+      return
+    }
+
+    if (brand === 'lamira') {
+      if (letterheadAssets.lamiraLogo) {
+        doc.image(letterheadAssets.lamiraLogo, left + width / 2 - 145, 18, { fit: [290, 82] })
+      } else {
+        doc.font('Helvetica-Bold').fontSize(16).fillColor('#7c3f12').text('Rumah LAMIRA', left, 48, { width, align: 'center' })
+      }
+      logoDrawn = true
+      doc.y = 126
+      doc.x = left
+      return
+    }
+
     const top = doc.page.margins.top - 30
     if (opts.logo) {
       try {
@@ -253,16 +310,33 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
   const range = doc.bufferedPageRange()
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i)
-    const y = doc.page.height - 40
+    const pageHeight = doc.page.height
+    const y = pageHeight - 40
     const saved = doc.page.margins.bottom
     doc.page.margins.bottom = 0
-    if (contactLine) {
-      doc.font('Helvetica').fontSize(7).fillColor(MUTED)
-        .text(contactLine, left, y - 12, { width, align: 'center', lineBreak: false })
+    if (brand === 'lasta') {
+      doc.font('Helvetica').fontSize(7.5).fillColor('#252064')
+        .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
+    } else if (brand === 'lamira') {
+      if (letterheadAssets.lamiraDecoration) {
+        doc.save()
+        doc.opacity(0.16)
+        doc.image(letterheadAssets.lamiraDecoration, left - 8, pageHeight - 82, { fit: [92, 74] })
+        doc.restore()
+      }
+      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#6b3510')
+        .text('Address: Jl. Widya Chandra X No. 2A, Jakarta Selatan  |  Phone: 021-5274862  |  Email: rumah_lamira@yahoo.com', left + 20, pageHeight - 61, { width: width - 20, align: 'center', lineBreak: false })
+      doc.font('Helvetica').fontSize(7).fillColor('#8b735f')
+        .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
+    } else {
+      if (contactLine) {
+        doc.font('Helvetica').fontSize(7).fillColor(MUTED)
+          .text(contactLine, left, y - 12, { width, align: 'center', lineBreak: false })
+      }
+      doc.font('Helvetica').fontSize(7.5).fillColor(MUTED)
+        .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
+      doc.text(s.propertyName, left, y, { width, align: 'left', lineBreak: false })
     }
-    doc.font('Helvetica').fontSize(7.5).fillColor(MUTED)
-      .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
-    doc.text(s.propertyName, left, y, { width, align: 'left', lineBreak: false })
     doc.page.margins.bottom = saved
   }
 

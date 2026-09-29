@@ -25,6 +25,8 @@ export interface AgreementSnapshot {
   number: string
   date: string
   propertyName: string
+  /** Stable property code used to select the property's letterhead. */
+  propertyCode?: string
   propertyAddress: string
   propertyPhone: string
   propertyEmail: string
@@ -44,6 +46,7 @@ export interface AgreementContext {
   date: string
   property: {
     name: string
+    code?: string
     address: string
     phone: string
     paymentMethods: { cash: boolean; transfer: boolean }
@@ -185,6 +188,7 @@ export function buildAgreementSnapshot(ctx: AgreementContext): AgreementSnapshot
     number: ctx.number,
     date: ctx.date,
     propertyName: ctx.property.name,
+    propertyCode: ctx.property.code,
     propertyAddress: ctx.property.address,
     propertyPhone: ctx.property.phone,
     propertyEmail: ctx.agreement.contactEmail,

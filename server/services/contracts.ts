@@ -100,6 +100,7 @@ export async function createContract(rentalId: string, actor: Actor, ip: string 
       date: today,
       property: {
         name: property.name,
+        code: property.code,
         address: formatAddress(property.address),
         phone: property.phone,
         paymentMethods: property.paymentMethods,

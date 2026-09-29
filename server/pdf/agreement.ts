@@ -321,12 +321,12 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
       if (letterheadAssets.lamiraDecoration) {
         doc.save()
         doc.opacity(0.16)
-        doc.image(letterheadAssets.lamiraDecoration, left - 8, pageHeight - 82, { fit: [92, 74] })
+        doc.image(letterheadAssets.lamiraDecoration, left - 8, pageHeight - 154, { fit: [172, 139] })
         doc.restore()
       }
-      doc.font('Helvetica-Bold').fontSize(7.5).fillColor('#6b3510')
-        .text('Address: Jl. Widya Chandra X No. 2A, Jakarta Selatan  |  Phone: 021-5274862  |  Email: rumah_lamira@yahoo.com', left + 20, pageHeight - 61, { width: width - 20, align: 'center', lineBreak: false })
-      doc.font('Helvetica').fontSize(7).fillColor('#8b735f')
+      doc.font('Helvetica-Bold').fontSize(8.5).fillColor('#858585')
+        .text('Address: Jl. Widya Chandra X No. 2A, Jakarta Selatan\nPhone: 021-5274862, Email: rumah_lamira@yahoo.com', left + 120, pageHeight - 76, { width: width - 120, align: 'center', lineGap: 2 })
+      doc.font('Helvetica').fontSize(7).fillColor('#8b8b8b')
         .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
     } else {
       if (contactLine) {

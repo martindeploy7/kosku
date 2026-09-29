@@ -251,11 +251,12 @@ function useAfterRental() {
 /* ================================================================== Tenant (+ optional rental) */
 
 export function TenantFormModal({
-  open, onClose, onCreated,
+  open, onClose, onCreated, presetRoomId,
 }: {
   open: boolean
   onClose: () => void
   onCreated?: (tenantId: string) => void
+  presetRoomId?: string
 }) {
   const run = useStore((s) => s.run)
   const properties = useStore((s) => s.properties)
@@ -270,7 +271,7 @@ export function TenantFormModal({
   const [job, setJob] = React.useState('')
   const [withRental, setWithRental] = React.useState(true)
   const [waitlistPropertyId, setWaitlistPropertyId] = React.useState('')
-  const [draft, setDraft] = useRentalDraft(open)
+  const [draft, setDraft] = useRentalDraft(open, presetRoomId)
   const [saving, setSaving] = React.useState(false)
   const [error, setError] = React.useState<string | null>(null)
 

@@ -1,7 +1,9 @@
 import * as React from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
-  AlarmClock, Banknote, BedDouble, CalendarRange, DoorOpen, Hourglass, LayoutGrid, List, Pencil, Plus, Trash2, User,
+  AlarmClock, ArrowRight, Banknote, BedDouble, Building2, CalendarRange, DoorOpen, Hourglass, LayoutGrid, List, Pencil,
+  Plus, Trash2, UserPlus, UserRound, WalletCards,
+  type LucideIcon,
 } from 'lucide-react'
 import {
   Badge, Button, Card, ConfirmDialog, EmptyState, Field, Input, Pagination, SearchInput,
@@ -180,65 +182,23 @@ export default function Rooms() {
                   const cond = ROOM_CONDITIONS.find((c) => c.value === room.condition)!
                   const CondIcon = ROOM_CONDITION_ICON[cond.value]
                   return (
-                    <Card key={room.id} className="p-5 hover:shadow-md transition-all">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-bold truncate">{room.name}</h3>
-                            <Tooltip content={`Kondisi: ${cond.label}`}>
-                              <CondIcon className="h-3.5 w-3.5 text-muted-foreground cursor-default" />
-                            </Tooltip>
-                          </div>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{lookups.propertyName(room.propertyId)}</p>
-                        </div>
-                        <Badge tone={st.tone as 'success'}>{st.label}</Badge>
-                      </div>
-
-                      {tenant && rental ? (
-                        <button
-                          onClick={() => navigate(`/tenants/${tenant.id}`)}
-                          className="mt-4 w-full flex items-center gap-2 rounded-md bg-muted/50 px-3 py-2.5 text-left hover:bg-muted transition"
-                        >
-                          <User className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold truncate">{tenant.name}</p>
-                            <p className="text-[11px] text-muted-foreground">
-                              {rental.status === 'booked' ? `Masuk ${formatDate(rental.startDate)}` : `Sejak ${formatDate(rental.startDate)}`}
-                            </p>
-                          </div>
-                          {due && <DueChip due={due} today={today} />}
-                        </button>
-                      ) : (
-                        <div className="mt-4 rounded-md border border-dashed border-border px-3 py-2.5 text-xs text-muted-foreground text-center">
-                          Belum ada penyewa
-                        </div>
-                      )}
-
-                      <div className="mt-4 flex items-end justify-between gap-3">
-                        <div>
-                          <p className="text-[11px] text-muted-foreground font-semibold">Harga per bulan</p>
-                          <p className="font-extrabold tabular-nums">{formatIDR(room.price.monthly)}</p>
-                          {pendingPrice(room.id) && (
-                            <Tooltip content={pendingPrice(room.id)!.changes.map((c) => `${c.label}: ${c.before} → ${c.after}`).join(' · ')}>
-                              <p className="text-[11px] font-semibold text-warning mt-0.5">Harga baru menunggu persetujuan</p>
-                            </Tooltip>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Select
-                            className="h-8 w-[118px] text-xs"
-                            value={room.condition}
-                            onChange={(v) => {
-                              void run(() => actions.updateRoom(room.id, { condition: v as Room['condition'] }), { success: `Kondisi ${room.name} diperbarui` })
-                            }}
-                            options={ROOM_CONDITIONS.map((c) => ({ value: c.value, label: `${c.emoji} ${c.label}` }))}
-                          />
-                          <Button size="icon" variant="ghost" onClick={() => openEdit(room)} aria-label="Edit kamar">
-                            <Pencil className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    </Card>
+                    <RoomCard
+                      key={room.id}
+                      room={room}
+                      status={status}
+                      rental={rental}
+                      tenant={tenant}
+                      due={due}
+                      today={today}
+                      propertyName={lookups.propertyName(room.propertyId)}
+                      pendingPrice={pendingPrice(room.id)}
+                      onTenant={() => tenant && navigate(`/tenants/${tenant.id}`)}
+                      onAddTenant={() => navigate(`/tenants?action=new&roomId=${encodeURIComponent(room.id)}`)}
+                      onCondition={(v) => {
+                        void run(() => actions.updateRoom(room.id, { condition: v }), { success: `Kondisi ${room.name} diperbarui` })
+                      }}
+                      onEdit={() => openEdit(room)}
+                    />
                   )
                 })}
               </div>
@@ -314,6 +274,192 @@ export default function Rooms() {
       />
       <PaymentModal open={Boolean(payFor)} onClose={() => setPayFor(null)} presetTenantId={payFor?.tenantId} presetInvoiceId={payFor?.invoiceId} />
     </>
+  )
+}
+
+type RoomCardProps = RoomRow & {
+  today: string
+  propertyName: string
+  pendingPrice: { changes: { label: string; before: string; after: string }[] } | undefined
+  onTenant: () => void
+  onAddTenant: () => void
+  onCondition: (value: Room['condition']) => void
+  onEdit: () => void
+}
+
+type RoomCardTheme = {
+  Icon: LucideIcon
+  card: string
+  iconShell: string
+  iconColor: string
+  tenant: string
+  empty: string
+  action: string
+}
+
+const ROOM_CARD_THEMES: Record<RoomStatus, RoomCardTheme> = {
+  tersedia: {
+    Icon: DoorOpen,
+    card: 'border-info/35 bg-info-soft/35 hover:border-info/65',
+    iconShell: 'bg-info text-white shadow-md shadow-info/20',
+    iconColor: 'text-info',
+    tenant: 'border-info/25 bg-info-soft/70',
+    empty: 'border-info/40 bg-info-soft/65 text-info',
+    action: 'bg-info text-white hover:bg-info/90 shadow-md shadow-info/20',
+  },
+  dipesan_dp: {
+    Icon: Hourglass,
+    card: 'border-warning/40 bg-warning-soft/45 hover:border-warning/70',
+    iconShell: 'bg-warning text-accent-foreground shadow-md shadow-warning/20',
+    iconColor: 'text-warning',
+    tenant: 'border-warning/30 bg-warning-soft/75',
+    empty: 'border-warning/45 bg-warning-soft/70 text-accent-foreground',
+    action: 'bg-warning text-accent-foreground hover:bg-warning/90 shadow-md shadow-warning/20',
+  },
+  dipesan: {
+    Icon: WalletCards,
+    card: 'border-primary/35 bg-primary-soft/35 hover:border-primary/65',
+    iconShell: 'bg-primary text-white shadow-md shadow-primary/20',
+    iconColor: 'text-primary',
+    tenant: 'border-primary/25 bg-primary-soft/70',
+    empty: 'border-primary/40 bg-primary-soft/65 text-primary',
+    action: 'bg-primary text-white hover:bg-primary/90 shadow-md shadow-primary/20',
+  },
+  disewa: {
+    Icon: UserRound,
+    card: 'border-success/35 bg-success-soft/40 hover:border-success/65',
+    iconShell: 'bg-success text-white shadow-md shadow-success/20',
+    iconColor: 'text-success',
+    tenant: 'border-success/25 bg-success-soft/75',
+    empty: 'border-success/40 bg-success-soft/65 text-success',
+    action: 'bg-success text-white hover:bg-success/90 shadow-md shadow-success/20',
+  },
+  menunggak: {
+    Icon: AlarmClock,
+    card: 'border-danger/35 bg-danger-soft/40 hover:border-danger/65',
+    iconShell: 'bg-danger text-white shadow-md shadow-danger/20',
+    iconColor: 'text-danger',
+    tenant: 'border-danger/25 bg-danger-soft/75',
+    empty: 'border-danger/40 bg-danger-soft/65 text-danger',
+    action: 'bg-danger text-white hover:bg-danger/90 shadow-md shadow-danger/20',
+  },
+  akan_tersedia: {
+    Icon: CalendarRange,
+    card: 'border-accent/45 bg-accent/10 hover:border-accent/70',
+    iconShell: 'bg-accent text-accent-foreground shadow-md shadow-accent/20',
+    iconColor: 'text-accent-foreground',
+    tenant: 'border-accent/30 bg-accent/15',
+    empty: 'border-accent/45 bg-accent/15 text-accent-foreground',
+    action: 'bg-accent text-accent-foreground hover:bg-accent/90 shadow-md shadow-accent/20',
+  },
+}
+
+function RoomCard({
+  room, status, rental, tenant, due, today, propertyName, pendingPrice: pending, onTenant, onAddTenant, onCondition, onEdit,
+}: RoomCardProps) {
+  const cond = ROOM_CONDITIONS.find((c) => c.value === room.condition)!
+  const CondIcon = ROOM_CONDITION_ICON[cond.value]
+  const st = ROOM_STATUSES.find((s) => s.value === status)!
+  const theme = ROOM_CARD_THEMES[status]
+  const StatusIcon = theme.Icon
+  const isAvailable = status === 'tersedia'
+
+  return (
+    <Card className={cn('relative overflow-hidden border-2 p-5 transition-all hover:-translate-y-0.5 hover:shadow-lg', theme.card)}>
+      <StatusIcon className={cn('pointer-events-none absolute -right-5 -bottom-7 h-36 w-36 rotate-12 opacity-[.11]', theme.iconColor)} aria-hidden="true" />
+      <div className="relative z-10">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className={cn('grid h-12 w-12 shrink-0 place-items-center rounded-2xl', theme.iconShell)}>
+              <StatusIcon className="h-6 w-6" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="truncate font-extrabold tracking-tight">{room.name}</h3>
+                <Tooltip content={`Kondisi: ${cond.label}`}>
+                  <span className="grid h-6 w-6 place-items-center rounded-lg bg-surface/80 shadow-xs">
+                    <CondIcon className={cn('h-3.5 w-3.5', theme.iconColor)} aria-hidden="true" />
+                  </span>
+                </Tooltip>
+              </div>
+              <p className={cn('mt-1 flex items-center gap-1 text-xs font-semibold', theme.iconColor)}>
+                <Building2 className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                <span className="truncate">{propertyName}</span>
+              </p>
+            </div>
+          </div>
+          <Badge tone={st.tone as 'success'} className="shrink-0 shadow-xs">{st.label}</Badge>
+        </div>
+
+        {tenant && rental ? (
+          <button
+            onClick={onTenant}
+            className={cn('focus-ring mt-5 flex w-full items-center gap-3 rounded-xl border px-3 py-3 text-left transition hover:-translate-y-0.5 hover:shadow-sm', theme.tenant)}
+          >
+            <span className={cn('grid h-9 w-9 shrink-0 place-items-center rounded-xl', theme.iconShell)}>
+              <UserRound className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-extrabold">{tenant.name}</span>
+              <span className="mt-0.5 block text-[11px] font-semibold text-foreground/70">
+                {rental.status === 'booked' ? `Masuk ${formatDate(rental.startDate)}` : `Sejak ${formatDate(rental.startDate)}`}
+              </span>
+            </span>
+            {due && <DueChip due={due} today={today} />}
+          </button>
+        ) : (
+          <div className={cn('mt-5 flex items-center gap-3 rounded-xl border-2 border-dashed px-3 py-3', theme.empty)}>
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface/80 shadow-xs">
+              <UserPlus className="h-4 w-4" aria-hidden="true" />
+            </span>
+            <div>
+              <p className="text-sm font-extrabold">Belum ada penyewa</p>
+              <p className="mt-0.5 text-[11px] font-semibold opacity-80">Kamar siap diisi</p>
+            </div>
+          </div>
+        )}
+
+        <div className="mt-4 flex items-center gap-3 rounded-xl border border-border/70 bg-surface/75 px-3 py-2.5 shadow-xs">
+          <span className={cn('grid h-8 w-8 shrink-0 place-items-center rounded-lg', theme.tenant)}>
+            <WalletCards className={cn('h-4 w-4', theme.iconColor)} aria-hidden="true" />
+          </span>
+          <div className="min-w-0">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Harga per bulan</p>
+            <p className="font-extrabold tabular-nums">{formatIDR(room.price.monthly)}</p>
+            {pending && (
+              <Tooltip content={pending.changes.map((c) => `${c.label}: ${c.before} → ${c.after}`).join(' · ')}>
+                <p className="mt-0.5 text-[11px] font-bold text-warning">Harga baru menunggu persetujuan</p>
+              </Tooltip>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-4 flex items-center gap-2">
+          {isAvailable ? (
+            <Button size="sm" className={cn('min-w-0 flex-1', theme.action)} onClick={onAddTenant}>
+              <UserPlus className="h-4 w-4" aria-hidden="true" />
+              <span>Tambah penyewa</span>
+              <ArrowRight className="ml-auto h-4 w-4" aria-hidden="true" />
+            </Button>
+          ) : tenant ? (
+            <Button size="sm" variant="outline" className="min-w-0 flex-1 border-foreground/15 bg-surface/75" onClick={onTenant}>
+              <UserRound className="h-4 w-4" aria-hidden="true" /> Lihat penyewa
+            </Button>
+          ) : (
+            <span className="flex-1 text-xs font-semibold text-muted-foreground">Belum siap disewakan</span>
+          )}
+          <Select
+            className="h-8 w-[112px] shrink-0 bg-surface/80 text-xs"
+            value={room.condition}
+            onChange={(v) => onCondition(v as Room['condition'])}
+            options={ROOM_CONDITIONS.map((c) => ({ value: c.value, label: `${c.emoji} ${c.label}` }))}
+          />
+          <Button size="icon" variant="ghost" className="shrink-0" onClick={onEdit} aria-label={`Edit ${room.name}`}>
+            <Pencil className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+    </Card>
   )
 }
 

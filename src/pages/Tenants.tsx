@@ -24,6 +24,7 @@ export default function Tenants() {
   const lookups = useLookups()
 
   const [modalOpen, setModalOpen] = React.useState(false)
+  const [presetRoomId, setPresetRoomId] = React.useState<string | undefined>(undefined)
   const [query, setQuery] = React.useState('')
   const [view, setView] = React.useState<'grid' | 'list'>('grid')
   const [waitlistMode, setWaitlistMode] = React.useState(false)
@@ -34,8 +35,10 @@ export default function Tenants() {
 
   React.useEffect(() => {
     if (params.get('action') === 'new') {
+      setPresetRoomId(params.get('roomId') ?? undefined)
       setModalOpen(true)
       params.delete('action')
+      params.delete('roomId')
       setParams(params, { replace: true })
     }
   }, [params, setParams])
@@ -105,7 +108,7 @@ export default function Tenants() {
             <Button variant="outline" onClick={handleExport}>
               <FileSpreadsheet className="h-4 w-4" /> Ekspor Excel
             </Button>
-            <Button onClick={() => setModalOpen(true)}>
+            <Button onClick={() => { setPresetRoomId(undefined); setModalOpen(true) }}>
               <Plus className="h-4 w-4" /> Tambah penyewa
             </Button>
           </>
@@ -182,7 +185,7 @@ export default function Tenants() {
             }
             action={
               !waitlistMode && (
-                <Button onClick={() => setModalOpen(true)}>
+                <Button onClick={() => { setPresetRoomId(undefined); setModalOpen(true) }}>
                   <UserPlus className="h-4 w-4" /> Tambah penyewa
                 </Button>
               )
@@ -263,7 +266,12 @@ export default function Tenants() {
         </Card>
       )}
 
-      <TenantFormModal open={modalOpen} onClose={() => setModalOpen(false)} onCreated={(id) => navigate(`/tenants/${id}`)} />
+      <TenantFormModal
+        open={modalOpen}
+        presetRoomId={presetRoomId}
+        onClose={() => { setModalOpen(false); setPresetRoomId(undefined) }}
+        onCreated={(id) => navigate(`/tenants/${id}`)}
+      />
     </>
   )
 }

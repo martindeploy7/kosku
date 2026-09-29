@@ -6,7 +6,7 @@ export default function NotFound() {
   return (
     <div className="min-h-screen grid place-items-center bg-background p-6">
       <div className="text-center max-w-md">
-        <p className="text-[96px] leading-none font-extrabold tracking-tighter bg-gradient-to-br from-primary to-violet-600 bg-clip-text text-transparent">
+        <p className="text-[96px] leading-none font-extrabold tracking-tighter text-primary">
           404
         </p>
         <h1 className="text-2xl font-extrabold tracking-tight mt-2">Halaman tidak ditemukan</h1>

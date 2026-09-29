@@ -13,6 +13,7 @@ import { PaymentModal } from '@/components/modals/PaymentModal'
 import { actions } from '@/lib/actions'
 import { currentRentalOfRoom, nextDueOfRental, type NextDue } from '@/lib/finance'
 import { ROOM_CONDITIONS, ROOM_STATUSES } from '@/lib/constants'
+import { ROOM_CONDITION_ICON } from '@/lib/roomConditionIcon'
 import { useLookups } from '@/lib/selectors'
 import { useCanDelete, useNeedsApproval, useStore } from '@/lib/store'
 import type { Rental, Room, RoomStatus, Tenant } from '@/lib/types'
@@ -149,7 +150,7 @@ export default function Rooms() {
               <FilterChips
                 options={[
                   ...ROOM_STATUSES.map((s) => ({ value: s.value, label: s.label })),
-                  ...ROOM_CONDITIONS.map((c) => ({ value: c.value, label: c.label, emoji: c.emoji })),
+                  ...ROOM_CONDITIONS.map((c) => ({ value: c.value, label: c.label, icon: ROOM_CONDITION_ICON[c.value] })),
                 ]}
                 selected={quickFilter}
                 onToggle={(v) => {
@@ -177,6 +178,7 @@ export default function Rooms() {
                 {paged.map(({ room, status, rental, tenant, due }) => {
                   const st = ROOM_STATUSES.find((s) => s.value === status)!
                   const cond = ROOM_CONDITIONS.find((c) => c.value === room.condition)!
+                  const CondIcon = ROOM_CONDITION_ICON[cond.value]
                   return (
                     <Card key={room.id} className="p-5 hover:shadow-md transition-all">
                       <div className="flex items-start justify-between gap-3">
@@ -184,7 +186,7 @@ export default function Rooms() {
                           <div className="flex items-center gap-2">
                             <h3 className="font-bold truncate">{room.name}</h3>
                             <Tooltip content={`Kondisi: ${cond.label}`}>
-                              <span className="text-base leading-none cursor-default">{cond.emoji}</span>
+                              <CondIcon className="h-3.5 w-3.5 text-muted-foreground cursor-default" />
                             </Tooltip>
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{lookups.propertyName(room.propertyId)}</p>
@@ -263,6 +265,7 @@ export default function Rooms() {
                   {paged.map(({ room, status, tenant, due }) => {
                     const st = ROOM_STATUSES.find((s) => s.value === status)!
                     const cond = ROOM_CONDITIONS.find((c) => c.value === room.condition)!
+                    const CondIcon = ROOM_CONDITION_ICON[cond.value]
                     return (
                       <Tr key={room.id}>
                         <Td className="font-semibold">{room.name}</Td>
@@ -276,7 +279,7 @@ export default function Rooms() {
                         </Td>
                         <Td className="text-sm whitespace-nowrap">{due ? <DueChip due={due} today={today} /> : '—'}</Td>
                         <Td><Badge tone={st.tone as 'success'}>{st.label}</Badge></Td>
-                        <Td><Badge tone={cond.tone as 'info'}>{cond.emoji} {cond.label}</Badge></Td>
+                        <Td><Badge tone={cond.tone as 'info'}><CondIcon className="h-3 w-3" /> {cond.label}</Badge></Td>
                         <Td align="right" className="font-bold tabular-nums whitespace-nowrap">{formatIDR(room.price.monthly)}</Td>
                         <Td align="center">
                           <div className="flex items-center justify-center gap-0.5">

@@ -17,6 +17,7 @@ import { actions } from '@/lib/actions'
 import {
   APPROVAL_FIELD_LABELS, APPROVAL_GATED, PDF_FONT_SIZES, ROOM_CONDITIONS, ROOM_STATUSES, TEMPLATE_VARIABLES, renderTemplate,
 } from '@/lib/constants'
+import { ROOM_CONDITION_ICON } from '@/lib/roomConditionIcon'
 import { currentRentalOfRoom } from '@/lib/finance'
 import { useLookups } from '@/lib/selectors'
 import { isPending, useCanDelete, useCanManage, useNeedsApproval, usePendingFor, useStore } from '@/lib/store'
@@ -352,12 +353,13 @@ export default function PropertyDetail() {
                   {propRooms.map((room) => {
                     const st = ROOM_STATUSES.find((s) => s.value === lookups.roomStatus(room.id))!
                     const cond = ROOM_CONDITIONS.find((c) => c.value === room.condition)!
+                    const CondIcon = ROOM_CONDITION_ICON[cond.value]
                     const rental = currentRentalOfRoom(room.id, rentals, today)
                     return (
                       <Tr key={room.id}>
                         <Td className="font-semibold">{room.name}</Td>
                         <Td><Badge tone={st.tone as 'success'}>{st.label}</Badge></Td>
-                        <Td><Badge tone={cond.tone as 'info'}>{cond.emoji} {cond.label}</Badge></Td>
+                        <Td><Badge tone={cond.tone as 'info'}><CondIcon className="h-3 w-3" /> {cond.label}</Badge></Td>
                         <Td align="right" className="tabular-nums whitespace-nowrap font-semibold">{formatIDR(room.price.monthly)} <span className="text-muted-foreground font-normal">/bln</span></Td>
                         <Td className="text-sm">
                           {rental ? <button onClick={() => navigate(`/tenants/${rental.tenantId}`)} className="hover:text-primary font-medium">{lookups.tenantName(rental.tenantId)}</button> : '—'}

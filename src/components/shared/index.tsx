@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2, ChevronRight, Filter,
-  Info, RotateCcw, X, XCircle,
+  Info, RotateCcw, X, XCircle, type LucideIcon,
 } from 'lucide-react'
 import { Badge, Button, Checkbox, Popover, SearchInput, SectionTitle, Tabs } from '@/components/ui'
 import { useStore } from '@/lib/store'
@@ -272,7 +272,7 @@ export function FilterPopover({
 export function FilterChips({
   options, selected, onToggle,
 }: {
-  options: { value: string; label: string; tone?: string; emoji?: string }[]
+  options: { value: string; label: string; tone?: string; icon?: LucideIcon }[]
   selected: string[]
   onToggle: (value: string) => void
 }) {
@@ -291,7 +291,7 @@ export function FilterChips({
                 : 'bg-surface border-border text-muted-foreground hover:border-primary/40 hover:text-foreground',
             )}
           >
-            {o.emoji && <span>{o.emoji}</span>}
+            {o.icon && <o.icon className="h-3.5 w-3.5" />}
             {o.label}
             {active && <X className="h-3 w-3" />}
           </button>

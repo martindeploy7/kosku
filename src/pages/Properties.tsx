@@ -108,10 +108,6 @@ export default function Properties() {
             return (
               <Card key={p.id} className="overflow-hidden hover:shadow-md transition-all group">
                 <div className="h-24 bg-gradient-to-br from-primary/90 to-violet-600 relative">
-                  <div className="absolute inset-0 opacity-25" style={{
-                    backgroundImage: 'radial-gradient(circle at 25% 30%, white 1px, transparent 1px)',
-                    backgroundSize: '22px 22px',
-                  }} />
                   <div className="absolute bottom-3 left-5 right-5 flex items-end justify-between gap-3">
                     <h3 className="font-extrabold text-white text-lg tracking-tight truncate drop-shadow">{p.name}</h3>
                     <Badge tone="muted" className="bg-white/90 border-transparent shrink-0">{propRooms.length} kamar</Badge>

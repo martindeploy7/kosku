@@ -230,6 +230,8 @@ const propertyPatch = z.object({
     ownerName: z.string().max(120),
     ownerTitle: z.string().max(80),
     ownerSignatureFileId: uuid.nullable(),
+    logoFileId: uuid.nullable(),
+    contactEmail: z.string().max(120),
     linkExpiryDays: z.number().int().min(1).max(60),
     autoSend: z.boolean(),
   }).optional(),
@@ -301,7 +303,7 @@ coreRoutes.post('/properties/:id/agreement-preview', async (c) => {
     number: `PSK/${p.code}/CONTOH`,
     date: today,
     property: {
-      name: p.name, address: formatAddress(p.address), paymentMethods: p.paymentMethods, paymentInfo: p.paymentInfo,
+      name: p.name, address: formatAddress(p.address), phone: p.phone, paymentMethods: p.paymentMethods, paymentInfo: p.paymentInfo,
       lateFee: body.lateFee ?? p.lateFee, booking: body.booking ?? p.booking,
     },
     agreement: body.agreement,
@@ -313,11 +315,11 @@ coreRoutes.post('/properties/:id/agreement-preview', async (c) => {
       depositAmount: 1_500_000, dpAmount: 500_000, paymentDeadline: addDays(today, 2), services: [],
     },
   })
-  let ownerSignature: Buffer | null = null
-  if (body.agreement.ownerSignatureFileId) {
-    ownerSignature = await loadFile(body.agreement.ownerSignatureFileId).then((f) => f.buffer).catch(() => null)
-  }
-  const pdf = await renderAgreementPdf(snapshot, { ownerSignature })
+  const loadOptional = async (fileId: string | null) => (fileId ? await loadFile(fileId).then((f) => f.buffer).catch(() => null) : null)
+  const [ownerSignature, logo] = await Promise.all([
+    loadOptional(body.agreement.ownerSignatureFileId), loadOptional(body.agreement.logoFileId),
+  ])
+  const pdf = await renderAgreementPdf(snapshot, { ownerSignature, logo })
   return new Response(new Uint8Array(pdf), {
     headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'inline; filename="pratinjau-perjanjian.pdf"', 'Cache-Control': 'no-store' },
   })

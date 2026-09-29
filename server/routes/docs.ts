@@ -70,7 +70,7 @@ const isSensitive = (kind: string) => SENSITIVE_FILE_KINDS.includes(kind)
 /* ================================================================== files */
 
 const OWNER_TYPES = ['tenant', 'payment', 'expense', 'contract', 'property'] as const
-const KINDS = ['ktp', 'kk', 'foto', 'kontrak', 'bukti_bayar', 'nota', 'ttd', 'lainnya'] as const
+const KINDS = ['ktp', 'kk', 'foto', 'kontrak', 'bukti_bayar', 'nota', 'ttd', 'logo', 'lainnya'] as const
 
 docsRoutes.post('/files', async (c) => {
   const u = requireUser(c)

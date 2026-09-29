@@ -72,7 +72,7 @@ export const ROLE_LABELS = {
 export const APPROVAL_GATED = {
   property: ['name', 'code', 'phone', 'paymentMethods', 'paymentInfo', 'lateFee', 'booking', 'rules', 'templates'],
   /** Inside `agreement`: the legal text and the landlord's identity/signature. */
-  agreement: ['template', 'ownerName', 'ownerTitle', 'ownerSignatureFileId'],
+  agreement: ['template', 'ownerName', 'ownerTitle', 'ownerSignatureFileId', 'logoFileId', 'contactEmail'],
   room: ['price', 'schemes'],
   invoice: ['items'],
 } as const
@@ -81,7 +81,8 @@ export const APPROVAL_FIELD_LABELS: Record<string, string> = {
   name: 'nama properti', code: 'kode faktur', phone: 'nomor WhatsApp', paymentMethods: 'metode pembayaran',
   paymentInfo: 'info rekening', lateFee: 'denda', booking: 'kebijakan DP', rules: 'tata tertib', templates: 'template pesan',
   template: 'teks perjanjian', ownerName: 'nama pihak pertama', ownerTitle: 'jabatan pihak pertama',
-  ownerSignatureFileId: 'tanda tangan pemilik', price: 'harga', schemes: 'skema sewa', items: 'nominal faktur',
+  ownerSignatureFileId: 'tanda tangan pemilik', logoFileId: 'logo kop surat', contactEmail: 'email kontak',
+  price: 'harga', schemes: 'skema sewa', items: 'nominal faktur',
 }
 
 export const ROLE_DESCRIPTIONS = {
@@ -111,6 +112,7 @@ export const FILE_KINDS = [
   { value: 'bukti_bayar', label: 'Bukti bayar', sensitive: false },
   { value: 'nota', label: 'Nota', sensitive: false },
   { value: 'ttd', label: 'Tanda tangan', sensitive: false },
+  { value: 'logo', label: 'Logo kop surat', sensitive: false },
   { value: 'lainnya', label: 'Lainnya', sensitive: true },
   { value: 'faktur', label: 'Faktur', sensitive: false },
   // Photos/PDFs a tenant sent on WhatsApp — usually transfer proofs. Anyone
@@ -372,6 +374,8 @@ export const defaultAgreement = (): AgreementSettings => ({
   ownerName: '',
   ownerTitle: 'Pemilik',
   ownerSignatureFileId: null,
+  logoFileId: null,
+  contactEmail: '',
   linkExpiryDays: 7,
   autoSend: true,
 })

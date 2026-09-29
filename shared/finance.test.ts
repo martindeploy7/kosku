@@ -173,10 +173,10 @@ describe('agreement + house rules', () => {
     const s = buildAgreementSnapshot({
       number: 'PSK/MLT/2609/001', date: '2026-09-24',
       property: {
-        name: 'Kost Melati', address: 'Bandung', paymentMethods: { cash: true, transfer: true }, paymentInfo: '',
+        name: 'Kost Melati', address: 'Bandung', phone: '6281200000000', paymentMethods: { cash: true, transfer: true }, paymentInfo: '',
         lateFee: fee, booking: defaultBookingPolicy(),
       },
-      agreement: { template: DEFAULT_AGREEMENT_TEMPLATE, ownerName: 'Bu Sri', ownerTitle: 'Pemilik' },
+      agreement: { template: DEFAULT_AGREEMENT_TEMPLATE, ownerName: 'Bu Sri', ownerTitle: 'Pemilik', contactEmail: '' },
       rules: DEFAULT_HOUSE_RULES(),
       tenant: { name: 'Budi', idNumber: '3273', phone: '6281234567890' },
       room: { name: 'Kamar 1' },

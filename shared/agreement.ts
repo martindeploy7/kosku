@@ -26,6 +26,8 @@ export interface AgreementSnapshot {
   date: string
   propertyName: string
   propertyAddress: string
+  propertyPhone: string
+  propertyEmail: string
   roomName: string
   tenantName: string
   tenantIdNumber: string
@@ -43,12 +45,13 @@ export interface AgreementContext {
   property: {
     name: string
     address: string
+    phone: string
     paymentMethods: { cash: boolean; transfer: boolean }
     paymentInfo: string
     lateFee: LateFee
     booking: BookingPolicy
   }
-  agreement: Pick<AgreementSettings, 'template' | 'ownerName' | 'ownerTitle'>
+  agreement: Pick<AgreementSettings, 'template' | 'ownerName' | 'ownerTitle' | 'contactEmail'>
   rules: HouseRules
   tenant: { name: string; idNumber: string; phone: string }
   room: { name: string }
@@ -183,6 +186,8 @@ export function buildAgreementSnapshot(ctx: AgreementContext): AgreementSnapshot
     date: ctx.date,
     propertyName: ctx.property.name,
     propertyAddress: ctx.property.address,
+    propertyPhone: ctx.property.phone,
+    propertyEmail: ctx.agreement.contactEmail,
     roomName: ctx.room.name,
     tenantName: ctx.tenant.name,
     tenantIdNumber: ctx.tenant.idNumber,

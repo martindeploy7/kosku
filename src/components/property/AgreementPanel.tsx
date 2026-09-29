@@ -21,6 +21,37 @@ interface Props {
   onRules: (r: HouseRules) => void
 }
 
+function PropertyLogo({ property, fileId, onChange }: { property: Property; fileId: string | null; onChange: (id: string | null) => void }) {
+  const run = useStore((s) => s.run)
+  const [busy, setBusy] = React.useState(false)
+
+  const upload = async (file: File) => {
+    setBusy(true)
+    const f = await run(() => actions.uploadFile(file, 'property', property.id, 'logo'), { refresh: false })
+    setBusy(false)
+    if (f) onChange(f.id)
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="h-20 rounded-lg border border-border bg-white grid place-items-center overflow-hidden">
+        {busy ? <Loader2 className="h-5 w-5 animate-spin text-gray-400" />
+          : fileId ? <img src={fileUrl(fileId)} alt="Logo kop surat" className="max-h-16 object-contain" />
+          : <span className="text-xs text-gray-400">Belum ada logo</span>}
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <label>
+          <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-input text-xs font-semibold cursor-pointer hover:bg-muted">
+            <Upload className="h-3.5 w-3.5" /> Unggah logo
+          </span>
+          <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); e.target.value = '' }} />
+        </label>
+        {fileId && <Button type="button" size="sm" variant="ghost" onClick={() => onChange(null)}><X className="h-3.5 w-3.5" /> Hapus</Button>}
+      </div>
+    </div>
+  )
+}
+
 function OwnerSignature({ property, fileId, onChange }: { property: Property; fileId: string | null; onChange: (id: string | null) => void }) {
   const run = useStore((s) => s.run)
   const [drawOpen, setDrawOpen] = React.useState(false)
@@ -131,10 +162,16 @@ export function AgreementPanel({ property, agreement, rules, booking, lateFee, o
         <Card>
           <CardHeader><CardTitle>Penanda tangan & pengiriman</CardTitle></CardHeader>
           <CardContent className="space-y-4">
+            <Field label="Logo kop surat" hint="Ditampilkan di bagian atas setiap halaman PDF, menggantikan nama properti polos.">
+              <PropertyLogo property={property} fileId={agreement.logoFileId} onChange={(id) => setA({ logoFileId: id })} />
+            </Field>
             <div className="grid sm:grid-cols-2 gap-4">
               <Field label="Nama pemilik / pengelola" required><Input value={agreement.ownerName} onChange={(e) => setA({ ownerName: e.target.value })} /></Field>
               <Field label="Jabatan"><Input value={agreement.ownerTitle} onChange={(e) => setA({ ownerTitle: e.target.value })} placeholder="Pemilik" /></Field>
             </div>
+            <Field label="Email kontak" hint="Ditampilkan di footer setiap halaman PDF bersama alamat & telepon properti. Kosongkan jika tidak perlu.">
+              <Input type="email" value={agreement.contactEmail} onChange={(e) => setA({ contactEmail: e.target.value })} placeholder="nama@contoh.com" />
+            </Field>
             <Field label="Tanda tangan pemilik" hint="Dibubuhkan otomatis pada setiap perjanjian.">
               <OwnerSignature property={property} fileId={agreement.ownerSignatureFileId} onChange={(id) => setA({ ownerSignatureFileId: id })} />
             </Field>

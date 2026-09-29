@@ -177,11 +177,19 @@ function describe(kind: ApprovalKind, label: string, before: Record<string, unkn
         if ('template' in b) out.push({ field: 'agreement.template', label: 'Teks perjanjian sewa', before: String(a.template ?? ''), after: String(b.template) })
         if ('ownerName' in b) out.push({ field: 'agreement.ownerName', label: 'Nama pihak pertama', before: String(a.ownerName ?? ''), after: String(b.ownerName) })
         if ('ownerTitle' in b) out.push({ field: 'agreement.ownerTitle', label: 'Jabatan pihak pertama', before: String(a.ownerTitle ?? ''), after: String(b.ownerTitle) })
+        if ('contactEmail' in b) out.push({ field: 'agreement.contactEmail', label: 'Email kontak', before: String(a.contactEmail ?? ''), after: String(b.contactEmail) })
         if ('ownerSignatureFileId' in b) {
           out.push({
             field: 'agreement.ownerSignatureFileId', label: 'Tanda tangan pemilik',
             before: a.ownerSignatureFileId ? 'Tanda tangan lama' : 'Belum ada', after: b.ownerSignatureFileId ? 'Tanda tangan baru' : 'Dihapus',
             fileIds: { before: (a.ownerSignatureFileId as string) ?? null, after: (b.ownerSignatureFileId as string) ?? null },
+          })
+        }
+        if ('logoFileId' in b) {
+          out.push({
+            field: 'agreement.logoFileId', label: 'Logo kop surat',
+            before: a.logoFileId ? 'Logo lama' : 'Belum ada', after: b.logoFileId ? 'Logo baru' : 'Dihapus',
+            fileIds: { before: (a.logoFileId as string) ?? null, after: (b.logoFileId as string) ?? null },
           })
         }
         break
@@ -335,10 +343,16 @@ export async function validatePropertyPatch(exec: Executor, current: PropertyRow
       throw conflict('Putuskan WhatsApp properti ini terlebih dahulu sebelum mengganti nomornya, lalu pindai ulang dengan nomor baru.', 'wa_connected')
     }
   }
-  const sig = (patch.agreement as { ownerSignatureFileId?: string | null } | undefined)?.ownerSignatureFileId
+  const patchAgreement = patch.agreement as { ownerSignatureFileId?: string | null; logoFileId?: string | null } | undefined
+  const sig = patchAgreement?.ownerSignatureFileId
   if (sig) {
     const f = await exec.query.files.findFirst({ where: eq(schema.files.id, sig) })
     if (!f || f.ownerType !== 'property' || f.ownerId !== current.id) throw badRequest('Tanda tangan pemilik tidak valid.')
+  }
+  const logo = patchAgreement?.logoFileId
+  if (logo) {
+    const f = await exec.query.files.findFirst({ where: eq(schema.files.id, logo) })
+    if (!f || f.ownerType !== 'property' || f.ownerId !== current.id) throw badRequest('Logo kop surat tidak valid.')
   }
 }
 

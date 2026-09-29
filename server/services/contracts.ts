@@ -19,7 +19,7 @@ type ContractRow = typeof schema.contracts.$inferSelect
 
 export const signingLink = (token: string) => `${env.PUBLIC_URL.replace(/\/$/, '')}/sign/${token}`
 
-async function ownerSignature(fileId: string | null | undefined) {
+async function loadOptionalImage(fileId: string | null | undefined) {
   if (!fileId) return null
   try {
     return (await loadFile(fileId)).buffer
@@ -101,6 +101,7 @@ export async function createContract(rentalId: string, actor: Actor, ip: string 
       property: {
         name: property.name,
         address: formatAddress(property.address),
+        phone: property.phone,
         paymentMethods: property.paymentMethods,
         paymentInfo: property.paymentInfo,
         lateFee: property.lateFee,
@@ -125,7 +126,10 @@ export async function createContract(rentalId: string, actor: Actor, ip: string 
       })
       .returning()
 
-    const pdf = await renderAgreementPdf(snapshot, { ownerSignature: await ownerSignature(property.agreement.ownerSignatureFileId) })
+    const pdf = await renderAgreementPdf(snapshot, {
+      ownerSignature: await loadOptionalImage(property.agreement.ownerSignatureFileId),
+      logo: await loadOptionalImage(property.agreement.logoFileId),
+    })
     const file = await storeBuffer(tx, {
       buffer: pdf, mime: 'application/pdf', ext: 'pdf',
       originalName: `Perjanjian ${number.replace(/\//g, '-')}.pdf`,
@@ -269,7 +273,8 @@ export async function signContractPublic(
       buffer: png, originalName: 'tanda-tangan.png', ownerType: 'contract', ownerId: row.id, kind: 'ttd', uploadedBy: null,
     })
     const pdf = await renderAgreementPdf(row.snapshot, {
-      ownerSignature: await ownerSignature(property?.agreement.ownerSignatureFileId),
+      ownerSignature: await loadOptionalImage(property?.agreement.ownerSignatureFileId),
+      logo: await loadOptionalImage(property?.agreement.logoFileId),
       tenantSignature: sig.buffer,
       signed: {
         name, signedAt, ip: meta.ip, userAgent: meta.userAgent, docHash: row.docHash ?? '-', timezone: env.APP_TIMEZONE,

@@ -16,6 +16,8 @@ export interface SignedInfo {
 }
 
 export interface RenderOptions {
+  /** Letterhead logo, shown at the top of every page instead of the plain property name. */
+  logo?: Buffer | null
   ownerSignature?: Buffer | null
   tenantSignature?: Buffer | null
   signed?: SignedInfo | null
@@ -57,10 +59,26 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
     if (doc.y + h > doc.page.height - doc.page.margins.bottom) doc.addPage()
   }
 
-  /* ---------- letterhead ---------- */
+  /* ---------- letterhead (header, repeats on every page) ----------
+   * With a logo: the logo alone carries the header, like the source
+   * kop surat (logo in the header, full contact block in the footer).
+   * Without one: fall back to the plain property name + address. */
+  let logoDrawn = false
   const letterhead = () => {
-    doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(s.propertyName, left, doc.page.margins.top - 30, { width })
-    doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(s.propertyAddress || '', { width })
+    const top = doc.page.margins.top - 30
+    if (opts.logo) {
+      try {
+        doc.image(opts.logo, left, top, { fit: [180, 42] })
+        doc.y = top + 42 + 4
+        doc.x = left
+        logoDrawn = true
+      } catch {
+        doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(s.propertyName, left, top, { width })
+      }
+    } else {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text(s.propertyName, left, top, { width })
+    }
+    if (!logoDrawn) doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(s.propertyAddress || '', left, doc.y, { width })
     const y = doc.y + 6
     doc.moveTo(left, y).lineTo(left + width, y).lineWidth(1).strokeColor(ACCENT).stroke()
     doc.y = y + 18
@@ -223,13 +241,25 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
     )
   }
 
-  /* ---------- footer on every page ---------- */
+  /* ---------- footer on every page (contact line + page number) ----------
+   * A logo header has no text, so the address moves down here with phone/email
+   * (mirroring the source kop surat). Without a logo, address already sits in
+   * the header, so this line only adds phone/email when set. */
+  const contactLine = [
+    logoDrawn && s.propertyAddress,
+    s.propertyPhone && `Telp: ${formatPhoneDisplay(s.propertyPhone)}`,
+    s.propertyEmail && `Email: ${s.propertyEmail}`,
+  ].filter(Boolean).join(' · ')
   const range = doc.bufferedPageRange()
   for (let i = range.start; i < range.start + range.count; i++) {
     doc.switchToPage(i)
     const y = doc.page.height - 40
     const saved = doc.page.margins.bottom
     doc.page.margins.bottom = 0
+    if (contactLine) {
+      doc.font('Helvetica').fontSize(7).fillColor(MUTED)
+        .text(contactLine, left, y - 12, { width, align: 'center', lineBreak: false })
+    }
     doc.font('Helvetica').fontSize(7.5).fillColor(MUTED)
       .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
     doc.text(s.propertyName, left, y, { width, align: 'left', lineBreak: false })

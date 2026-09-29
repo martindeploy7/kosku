@@ -107,6 +107,10 @@ export interface AgreementSettings {
   ownerTitle: string
   /** File id of the owner's signature image, stamped on every contract. */
   ownerSignatureFileId: string | null
+  /** File id of the property's letterhead logo, shown at the top of the agreement PDF instead of the plain property name. */
+  logoFileId: string | null
+  /** Contact email shown under the logo, alongside the property's phone. Optional. */
+  contactEmail: string
   /** Days the tenant's signing link stays valid. */
   linkExpiryDays: number
   /** Send the contract over WhatsApp automatically when a booking is created. */
@@ -300,7 +304,7 @@ export interface User {
 
 export type FileOwnerType = 'tenant' | 'payment' | 'expense' | 'contract' | 'property' | 'invoice'
 export type FileKind =
-  | 'ktp' | 'kk' | 'foto' | 'kontrak' | 'bukti_bayar' | 'nota' | 'ttd' | 'lainnya' | 'faktur' | 'wa_media'
+  | 'ktp' | 'kk' | 'foto' | 'kontrak' | 'bukti_bayar' | 'nota' | 'ttd' | 'logo' | 'lainnya' | 'faktur' | 'wa_media'
 
 export interface FileMeta {
   id: ID

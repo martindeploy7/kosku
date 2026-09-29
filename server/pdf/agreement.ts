@@ -64,7 +64,7 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
     size: 'A4',
     margins: brand === 'default'
       ? { top: 64, bottom: 64, left: 60, right: 60 }
-      : { top: 128, bottom: 92, left: 60, right: 60 },
+      : { top: brand === 'lasta' ? 112 : 128, bottom: 92, left: 60, right: 60 },
     bufferPages: true,
     info: {
       Title: `Perjanjian Sewa & Tata Tertib ${s.number}`,
@@ -94,18 +94,12 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
   const letterhead = () => {
     if (brand === 'lasta') {
       if (letterheadAssets.lastaLogo) {
-        doc.image(letterheadAssets.lastaLogo, left + width - 160, 16, { fit: [160, 86] })
+        doc.image(letterheadAssets.lastaLogo, left + width - 180, 12, { fit: [180, 96] })
       } else {
-        doc.font('Helvetica-Bold').fontSize(12).fillColor(INK).text('Lasta residence', left + width - 160, 42, { width: 160, align: 'right' })
-      }
-      if (letterheadAssets.lastaAddress) {
-        doc.image(letterheadAssets.lastaAddress, left, 98, { fit: [width, 42] })
-      } else {
-        doc.font('Helvetica').fontSize(8).fillColor('#252064').text(s.propertyAddress || '', left, 104, { width })
-        doc.moveTo(left, 98).lineTo(left + width, 98).lineWidth(1).strokeColor('#252064').stroke()
+        doc.font('Helvetica-Bold').fontSize(12).fillColor('#978dbb').text('Lasta residence', left + width - 180, 42, { width: 180, align: 'right' })
       }
       logoDrawn = true
-      doc.y = 142
+      doc.y = 112
       doc.x = left
       return
     }
@@ -315,7 +309,13 @@ export function renderAgreementPdf(s: AgreementSnapshot, opts: RenderOptions = {
     const saved = doc.page.margins.bottom
     doc.page.margins.bottom = 0
     if (brand === 'lasta') {
-      doc.font('Helvetica').fontSize(7.5).fillColor('#252064')
+      if (letterheadAssets.lastaAddress) {
+        doc.image(letterheadAssets.lastaAddress, left, pageHeight - 82, { fit: [width, 42] })
+      } else {
+        doc.moveTo(left, pageHeight - 82).lineTo(left + width, pageHeight - 82).lineWidth(1).strokeColor('#978dbb').stroke()
+        doc.font('Helvetica').fontSize(8).fillColor('#978dbb').text(s.propertyAddress || '', left, pageHeight - 68, { width })
+      }
+      doc.font('Helvetica').fontSize(7.5).fillColor('#978dbb')
         .text(`${s.number} · Halaman ${i + 1} dari ${range.count}`, left, y, { width, align: 'right', lineBreak: false })
     } else if (brand === 'lamira') {
       if (letterheadAssets.lamiraDecoration) {

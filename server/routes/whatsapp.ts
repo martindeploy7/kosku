@@ -140,6 +140,43 @@ waRoutes.post('/:propertyId/messages', async (c) => {
   return c.json(toMessage(row!, new Map([[u.id, u.name]])), 201)
 })
 
+/** Send an existing contract PDF to a number through this property's WhatsApp. */
+waRoutes.post('/:propertyId/documents', async (c) => {
+  const id = parse(uuid, c.req.param('propertyId'))
+  const { u } = await propertyFor(c, id)
+  const body = parse(z.object({
+    phone: z.string().min(6).max(30),
+    body: z.string().trim().min(1).max(4000),
+    fileId: uuid,
+    fileName: z.string().trim().min(1).max(200).optional(),
+  }), await jsonBody(c))
+  const file = await db.query.files.findFirst({
+    where: and(eq(schema.files.id, body.fileId), isNull(schema.files.deletedAt)),
+  })
+  if (!file) throw notFound('Berkas')
+  if (file.ownerType !== 'contract') throw badRequest('Hanya PDF perjanjian yang dapat dikirim melalui jalur ini.')
+  const contract = await db.query.contracts.findFirst({ where: eq(schema.contracts.id, file.ownerId) })
+  if (!contract || contract.deletedAt) throw notFound('Perjanjian')
+  // The sender and the contract may belong to different properties, but both
+  // must be inside the current user's workspace scope.
+  assertPropertyAccess(u, contract.propertyId)
+  const row = await queueWa(db, {
+    propertyId: id,
+    tenantId: null,
+    phone: normalizePhone(body.phone),
+    type: 'document',
+    fileId: file.id,
+    fileName: body.fileName ?? file.originalName,
+    body: body.body,
+    createdBy: u.id,
+  })
+  await writeAudit(u, c.get('ip'), {
+    action: 'wa.document_send', entityType: 'file', entityId: file.id, propertyId: id,
+    summary: `Kirim dokumen ${file.originalName} melalui WhatsApp`,
+  })
+  return c.json(toMessage(row!, new Map([[u.id, u.name]])), 201)
+})
+
 waRoutes.post('/messages/:id/retry', async (c) => {
   const u = requireUser(c)
   const id = parse(uuid, c.req.param('id'))
